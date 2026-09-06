@@ -1,0 +1,23 @@
+{
+    "$schema": "https://github.com/AvengeMedia/DankMaterialShell/raw/refs/heads/master/PLUGINS/plugin-schema.json",
+    "id": "screenshotPlus",
+    "name": "Screenshot+",
+    "description": "Region screenshot with live annotation — draw while you select",
+    "version": "0.1.0-prototype",
+    "author": "id",
+    "icon": "screenshot_region",
+    "type": "composite",
+    "capabilities": [
+        "daemon"
+    ],
+    "components": {
+        "daemon": "./ScreenshotPlusDaemon.qml"
+    },
+    "requires_dms": ">=1.6.0",
+    "requires": [],
+    "permissions": [
+        "settings_read",
+        "settings_write",
+        "shell_execute"
+    ]
+}

@@ -1,0 +1,7 @@
+# QML bytecode caches
+*.qmlc
+*.jsc
+
+# Editor / tooling
+.qmlls.ini
+.cache/
