@@ -17,7 +17,7 @@ Drag out a selection, and the toolbar appears next to it. Draw on the picture ri
 
 Requires DankMaterialShell 1.6 or later.
 
-Optional: `ffmpeg` or ImageMagick. With one of them installed the overlay writes an uncompressed image and closes at once, and the PNG is encoded in the background. Without them Qt encodes the PNG on the shell's GUI thread, which takes about a second for a large selection.
+**Optional: `ffmpeg` or ImageMagick. With one of them installed the overlay writes an uncompressed image and closes at once, and the PNG is encoded in the background. Without them Qt encodes the PNG on the shell's GUI thread, which takes about a second for a large selection.**
 
 ```bash
 git clone https://github.com/pcmid/dms-screenshot-plus.git \
