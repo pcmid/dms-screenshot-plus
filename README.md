@@ -11,6 +11,8 @@ Drag out a selection, and the toolbar appears next to it. Draw on the picture ri
 - The overlay is up about 80 ms after the shortcut
 - Exports at the screen's native resolution on HiDPI displays; mosaics are computed on source pixels
 
+![Annotating while selecting](screenshots/screenshot.png)
+
 ## Install
 
 Requires DankMaterialShell 1.6 or later.
