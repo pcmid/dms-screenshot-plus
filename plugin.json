@@ -2,8 +2,8 @@
     "$schema": "https://github.com/AvengeMedia/DankMaterialShell/raw/refs/heads/master/PLUGINS/plugin-schema.json",
     "id": "screenshotPlus",
     "name": "Screenshot+",
-    "description": "Region screenshot with live annotation — draw while you select",
-    "version": "0.1.0-prototype",
+    "description": "Region screenshot with live annotation — draw while you select. Rect, ellipse, line, arrow, pen, highlighter, text, mosaic, numbered markers; configurable toolbar.",
+    "version": "0.2.0",
     "author": "id",
     "icon": "screenshot_region",
     "type": "composite",
@@ -13,6 +13,7 @@
     "components": {
         "daemon": "./ScreenshotPlusDaemon.qml"
     },
+    "settings": "./ScreenshotPlusSettings.qml",
     "requires_dms": ">=1.6.0",
     "requires": [],
     "permissions": [

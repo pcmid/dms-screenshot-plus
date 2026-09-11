@@ -2,7 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.Common
-import "lib/Renderer.js" as Renderer
+import qs.Services
+import "lib/Tools.js" as Tools
 
 // One fullscreen layer-shell window per monitor. Everything lives in the same
 // QML scene, which is the whole point: the toolbar and the annotations are
@@ -27,9 +28,9 @@ Variants {
         WlrLayershell.namespace: "dms:screenshot-plus"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.exclusiveZone: -1
-        // TODO(multi-monitor): several Exclusive layers compete for the keyboard.
-        // Fine for a single screen; revisit when multi-monitor lands.
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+        // Exclusive so Esc/Enter/Ctrl+Z/tool keys reach us; released while the
+        // colour picker (a separate window) needs to be typed into.
+        WlrLayershell.keyboardFocus: (root.ctl && root.ctl.pickerOpen) ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
 
         anchors {
             left: true
@@ -51,16 +52,12 @@ Variants {
 
         readonly property bool useScreencopy: root.ctl && root.ctl.backend === "screencopy"
 
-        // Two distinct milestones, and conflating them costs ~170ms of felt latency:
-        //
-        //   dimmable  — the grab has RETURNED, so painting the dimmer can no
-        //               longer contaminate it. The frozen PNG may still be
-        //               decoding, but the live desktop showing through is the
-        //               same picture, so dimming now is visually seamless.
-        //   frameReady — the frame is actually decoded and on screen. Only the
-        //               export has to wait for this.
+        // Two distinct milestones:
+        //   dimmable   — the grab has RETURNED, so painting the dimmer can no
+        //                longer contaminate it. The live desktop underneath is
+        //                the same picture, so dimming now is seamless.
+        //   frameReady — the frame is decoded and on screen. Export waits for it.
         readonly property bool dimmable: root.ctl && !root.ctl.capturing
-
         readonly property bool frameReady: useScreencopy
                                           ? frozen.hasContent
                                           : (win.freezeUrl !== "" && freezeImage.status === Image.Ready)
@@ -85,36 +82,34 @@ Variants {
         // The screen containing the selection centre owns keyboard actions and export.
         readonly property bool ownsSelection: {
             if (!root.ctl || !root.ctl.hasSelection)
-                return true // before a selection exists, everyone listens
+                return true
             const cx = root.ctl.selX + root.ctl.selW / 2
             const cy = root.ctl.selY + root.ctl.selH / 2
             return cx >= originX && cx < originX + modelData.width
                 && cy >= originY && cy < originY + modelData.height
         }
 
+        readonly property alias keyHandler: keyHandler
+
         // ── Interaction state ────────────────────────────────────────────────
 
-        property string mode: "idle" // idle | creating | moving | resizing | drawing
+        // idle | creating | moving | resizing | drawing | dragStroke
+        property string mode: "idle"
         property string resizeHandle: ""
         property real dragGX: 0
         property real dragGY: 0
         property var origSel: null
-        property var activePoints: []
 
         readonly property int handleSize: 10
         readonly property int minSel: 8
+        readonly property string toolKind: root.ctl ? Tools.kindOf(root.ctl.activeTool) : ""
 
         function snapshotSel() {
-            return {
-                "x": root.ctl.selX,
-                "y": root.ctl.selY,
-                "w": root.ctl.selW,
-                "h": root.ctl.selH
-            }
+            return { "x": root.ctl.selX, "y": root.ctl.selY, "w": root.ctl.selW, "h": root.ctl.selH }
         }
 
         function clampToLayout(gx, gy) {
-            // Prototype: single screen, so clamp to this screen's bounds.
+            // Single screen for now: clamp to this screen's bounds.
             return {
                 "x": Math.max(originX, Math.min(originX + modelData.width, gx)),
                 "y": Math.max(originY, Math.min(originY + modelData.height, gy))
@@ -137,46 +132,66 @@ Variants {
             const o = origSel
             if (!o)
                 return
-
-            let l = o.x
-            let t = o.y
-            let r = o.x + o.w
-            let b = o.y + o.h
-
+            let l = o.x, t = o.y, r = o.x + o.w, b = o.y + o.h
             if (resizeHandle.indexOf("l") !== -1) l = gx
             if (resizeHandle.indexOf("r") !== -1) r = gx
             if (resizeHandle.indexOf("t") !== -1) t = gy
             if (resizeHandle.indexOf("b") !== -1) b = gy
-
-            root.ctl.setSelection(Math.min(l, r), Math.min(t, b),
-                                  Math.abs(r - l), Math.abs(b - t))
+            root.ctl.setSelection(Math.min(l, r), Math.min(t, b), Math.abs(r - l), Math.abs(b - t))
         }
 
-        function commitStroke() {
-            if (activePoints.length === 0)
+        // Esc / right click: peel one layer of state at a time.
+        function peelBack() {
+            if (annot.editingText)
+                annot.cancelTextEdit()
+            else if (root.ctl.selectedId >= 0)
+                root.ctl.select(-1)
+            else if (root.ctl.activeTool !== "")
+                root.ctl.activeTool = ""
+            else
+                root.ctl.cancel()
+        }
+
+        // ── Colour picker (a separate DMS window) ────────────────────────────
+        // It lives on the Top layer and gets no keyboard while screenshotActive
+        // is set, so: lift it to Overlay, drop our own grab, and undo both when
+        // it closes. Same dance quickCapture does.
+
+        function openPicker() {
+            const p = PopoutService.colorPickerModal
+            if (!p) {
+                console.warn("screenshotPlus: colorPickerModal unavailable")
                 return
-            root.ctl.pushStroke({
-                                    "tool": root.ctl.activeTool,
-                                    "color": String(root.ctl.strokeColor),
-                                    "width": root.ctl.strokeWidth,
-                                    "points": activePoints.slice()
-                                })
-            activePoints = []
+            }
+            p.useOverlayLayer = true
+            p.selectedColor = root.ctl.strokeColor
+            p.pickerTitle = "标注颜色"
+            p.onColorSelectedCallback = c => { root.ctl.strokeColor = c }
+            root.ctl.pickerOpen = true
+            p.show()
+        }
+
+        Connections {
+            target: PopoutService.colorPickerModal
+            ignoreUnknownSignals: true
+            function onDialogClosed() {
+                if (!root.ctl || !root.ctl.pickerOpen)
+                    return
+                PopoutService.colorPickerModal.useOverlayLayer = false
+                root.ctl.pickerOpen = false
+                PopoutManager.screenshotActive = root.ctl.active
+                keyHandler.forceActiveFocus()
+            }
         }
 
         // ── Frozen frame ─────────────────────────────────────────────────────
-
-        // Two ways to get one: the GPU texture (instant) or a PNG off disk
-        // (~180ms). Only one is live at a time.
 
         ScreencopyView {
             id: frozen
             anchors.fill: parent
             visible: win.useScreencopy
-            // Only bind the source once the window exists, and never in CLI mode.
             captureSource: (win.useScreencopy && win.visible) ? win.modelData : null
-            // A single frame. Staying live would capture our own overlay back
-            // into itself the moment the dimmer appears.
+            // A single frame; staying live would capture our own overlay.
             live: false
             paintCursor: false
         }
@@ -189,10 +204,8 @@ Variants {
             fillMode: Image.Stretch
             smooth: true
             cache: false
-            // Decode off the UI thread. The overlay is already mapped and the
-            // dimmer is already up, so there is no empty frame to flash — and
-            // a 4.8MB/3840x2160 PNG blocks the render thread for ~170ms if
-            // decoded synchronously.
+            // Decode off the UI thread: the dimmer is already up, so nothing
+            // flashes, and a 4K PNG blocks the render thread ~170ms otherwise.
             asynchronous: true
         }
 
@@ -201,150 +214,27 @@ Variants {
         Item {
             anchors.fill: parent
             visible: win.dimmable
-
-            // Functional colours, not theme colours: a screenshot dimmer must be
-            // neutral black regardless of the user's accent or light/dark mode.
+            // Functional colour, not a theme colour: a screenshot dimmer must be
+            // neutral black regardless of accent or light/dark mode.
             readonly property color dim: Qt.rgba(0, 0, 0, 0.45)
 
-            Rectangle { // top
-                color: parent.dim
-                x: 0; y: 0
-                width: parent.width
-                height: win.hasSel ? Math.max(0, win.selLY) : parent.height
-            }
-            Rectangle { // bottom
-                color: parent.dim
-                visible: win.hasSel
-                x: 0
-                y: win.selLY + win.selLH
-                width: parent.width
-                height: Math.max(0, parent.height - (win.selLY + win.selLH))
-            }
-            Rectangle { // left
-                color: parent.dim
-                visible: win.hasSel
-                x: 0
-                y: win.selLY
-                width: Math.max(0, win.selLX)
-                height: win.selLH
-            }
-            Rectangle { // right
-                color: parent.dim
-                visible: win.hasSel
-                x: win.selLX + win.selLW
-                y: win.selLY
-                width: Math.max(0, parent.width - (win.selLX + win.selLW))
-                height: win.selLH
-            }
+            Rectangle { color: parent.dim; x: 0; y: 0; width: parent.width
+                        height: win.hasSel ? Math.max(0, win.selLY) : parent.height }
+            Rectangle { color: parent.dim; visible: win.hasSel; x: 0; y: win.selLY + win.selLH
+                        width: parent.width; height: Math.max(0, parent.height - (win.selLY + win.selLH)) }
+            Rectangle { color: parent.dim; visible: win.hasSel; x: 0; y: win.selLY
+                        width: Math.max(0, win.selLX); height: win.selLH }
+            Rectangle { color: parent.dim; visible: win.hasSel; x: win.selLX + win.selLW; y: win.selLY
+                        width: Math.max(0, parent.width - (win.selLX + win.selLW)); height: win.selLH }
         }
 
-        // ── Selection contents: frame copy + annotations ─────────────────────
-        //
-        // This subtree IS the exported image. It holds its own copy of the
-        // frozen frame underneath the strokes, so grabToImage() on it yields
-        // exactly the selection — no cropping maths, no Canvas image plumbing.
-        // Visually it sits pixel-on-pixel over the full-screen frame below it,
-        // so nothing looks different.
-        //
-        // The selection decorations (border, handles, toolbar) are siblings,
-        // not children, so they are never captured.
+        // ── Annotations (export subtree + outline + text editor) ─────────────
 
-        Item {
-            id: exportRoot
-
-            x: win.selLX
-            y: win.selLY
-            width: win.selLW
-            height: win.selLH
-            clip: true
-            visible: win.hasSel && win.frameReady
-
-            // Frame copy, re-using whichever item already holds the texture —
-            // no second capture and no second PNG decode, whatever the backend.
-            // textureSize pins the copy to source pixels so the grab below
-            // samples at full resolution rather than at the on-screen size.
-            ShaderEffectSource {
-                anchors.fill: parent
-                sourceItem: win.useScreencopy ? frozen : freezeImage
-                sourceRect: Qt.rect(win.selLX, win.selLY, win.selLW, win.selLH)
-                textureSize: Qt.size(Math.max(1, Math.round(win.selLW * win.outScale)),
-                                     Math.max(1, Math.round(win.selLH * win.outScale)))
-                live: true
-                recursive: false
-            }
-
-            Canvas {
-                id: bakedCanvas
-                // Full-screen sized but positioned relative to the clip item, so
-                // stroke coordinates stay independent of the selection.
-                x: -win.selLX
-                y: -win.selLY
-                width: win.width
-                height: win.height
-                renderStrategy: Canvas.Cooperative
-
-                onPaint: {
-                    const ctx = getContext("2d")
-                    ctx.reset()
-                    if (!root.ctl)
-                        return
-                    Renderer.drawAll(ctx, root.ctl.strokes, {
-                                         "offsetX": -win.originX,
-                                         "offsetY": -win.originY,
-                                         "scale": 1
-                                     })
-                }
-
-                Connections {
-                    target: root.ctl
-                    function onStrokesChanged() { bakedCanvas.requestPaint() }
-                }
-            }
-
-            // Live preview of the stroke being drawn.
-            // Rect gets a cheap Rectangle; pen needs a canvas (the hot path).
-            Rectangle {
-                visible: win.mode === "drawing" && root.ctl.activeTool === "rect"
-                         && win.activePoints.length >= 2
-                color: "transparent"
-                border.color: root.ctl ? root.ctl.strokeColor : "red"
-                border.width: root.ctl ? root.ctl.strokeWidth : 3
-                x: win.activePoints.length >= 2
-                   ? win.toLocalX(Math.min(win.activePoints[0].x, win.activePoints[1].x)) - win.selLX : 0
-                y: win.activePoints.length >= 2
-                   ? win.toLocalY(Math.min(win.activePoints[0].y, win.activePoints[1].y)) - win.selLY : 0
-                width: win.activePoints.length >= 2
-                       ? Math.abs(win.activePoints[1].x - win.activePoints[0].x) : 0
-                height: win.activePoints.length >= 2
-                        ? Math.abs(win.activePoints[1].y - win.activePoints[0].y) : 0
-            }
-
-            Canvas {
-                id: activeCanvas
-                x: -win.selLX
-                y: -win.selLY
-                width: win.width
-                height: win.height
-                renderStrategy: Canvas.Cooperative
-                visible: win.mode === "drawing" && root.ctl.activeTool === "pen"
-
-                onPaint: {
-                    const ctx = getContext("2d")
-                    ctx.reset()
-                    if (!root.ctl || win.activePoints.length === 0)
-                        return
-                    Renderer.drawStroke(ctx, {
-                                            "tool": root.ctl.activeTool,
-                                            "color": String(root.ctl.strokeColor),
-                                            "width": root.ctl.strokeWidth,
-                                            "points": win.activePoints
-                                        }, {
-                                            "offsetX": -win.originX,
-                                            "offsetY": -win.originY,
-                                            "scale": 1
-                                        })
-                }
-            }
+        AnnotationLayer {
+            id: annot
+            overlay: win
+            ctl: root.ctl
+            frameItem: win.useScreencopy ? frozen : freezeImage
         }
 
         // ── Selection border + size readout ──────────────────────────────────
@@ -369,9 +259,8 @@ Variants {
             width: sizeLabel.implicitWidth + Theme.spacingM
             height: sizeLabel.implicitHeight + Theme.spacingXS
             x: Math.max(0, Math.min(win.width - width, win.selLX))
-            y: win.selLY - height - Theme.spacingXS > 0
-               ? win.selLY - height - Theme.spacingXS
-               : win.selLY + Theme.spacingXS
+            y: win.selLY - height - Theme.spacingXS > 0 ? win.selLY - height - Theme.spacingXS
+                                                        : win.selLY + Theme.spacingXS
 
             Text {
                 id: sizeLabel
@@ -379,8 +268,7 @@ Variants {
                 color: Theme.surfaceText
                 font.pixelSize: Theme.fontSizeSmall
                 text: Math.round(win.selLW) + " × " + Math.round(win.selLH)
-                      + "  (" + Math.round(win.selLW * win.outScale)
-                      + " × " + Math.round(win.selLH * win.outScale) + " px)"
+                      + "  (" + Math.round(win.selLW * win.outScale) + " × " + Math.round(win.selLH * win.outScale) + " px)"
             }
         }
 
@@ -389,93 +277,130 @@ Variants {
         MouseArea {
             id: mainArea
             anchors.fill: parent
-            // Deliberately live before the frame arrives — the point of mapping
-            // early is that dragging out a selection never has to wait.
+            // Live before the frame arrives: dragging out a selection never waits.
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: true
             cursorShape: {
-                if (win.mode === "drawing" || (root.ctl && root.ctl.activeTool !== ""))
-                    return Qt.CrossCursor
                 if (win.mode === "moving")
                     return Qt.ClosedHandCursor
-                if (win.hasSel && win.insideSel(win.toGlobalX(mouseX), win.toGlobalY(mouseY)))
-                    return Qt.OpenHandCursor
+                if (win.mode === "dragStroke")
+                    return Qt.SizeAllCursor
+                if (win.hasSel && win.insideSel(win.toGlobalX(mouseX), win.toGlobalY(mouseY))) {
+                    switch (win.toolKind) {
+                    case "select": return Qt.ArrowCursor
+                    case "text": return Qt.IBeamCursor
+                    case "": return Qt.OpenHandCursor
+                    default: return Qt.CrossCursor
+                    }
+                }
                 return Qt.CrossCursor
             }
 
             onPressed: mouse => {
+                if (toolbarLoader.item)
+                    toolbarLoader.item.closePanel()
+
                 if (mouse.button === Qt.RightButton) {
-                    // Right click clears the tool, or cancels if none is active.
-                    if (root.ctl.activeTool !== "")
-                        root.ctl.activeTool = ""
-                    else
-                        root.ctl.cancel()
+                    win.peelBack()
                     return
                 }
 
                 const gx = win.toGlobalX(mouse.x)
                 const gy = win.toGlobalY(mouse.y)
+                const inside = win.insideSel(gx, gy)
+                const kind = win.toolKind
 
-                if (root.ctl.activeTool !== "" && win.insideSel(gx, gy)) {
+                // Clicking anywhere but into the text tool's own area commits.
+                if (annot.editingText && !(kind === "text" && inside))
+                    annot.commitTextEdit()
+
+                if (kind === "" || !inside) {
+                    if (inside) {
+                        win.mode = "moving"
+                        win.beginDrag(gx, gy)
+                    } else {
+                        root.ctl.select(-1)
+                        win.mode = "creating"
+                        win.beginDrag(gx, gy)
+                        root.ctl.setSelection(gx, gy, 0, 0)
+                    }
+                    return
+                }
+
+                switch (kind) {
+                case "drag":
+                case "path":
                     win.mode = "drawing"
-                    win.activePoints = root.ctl.activeTool === "rect"
-                        ? [{"x": gx, "y": gy}, {"x": gx, "y": gy}]
-                        : [{"x": gx, "y": gy}]
-                    activeCanvas.requestPaint()
-                } else if (win.insideSel(gx, gy)) {
-                    win.mode = "moving"
-                    win.beginDrag(gx, gy)
-                } else {
-                    win.mode = "creating"
-                    win.beginDrag(gx, gy)
-                    root.ctl.setSelection(gx, gy, 0, 0)
+                    annot.beginStroke(gx, gy)
+                    break
+                case "click":
+                    annot.beginStroke(gx, gy)
+                    annot.endStroke()
+                    break
+                case "text":
+                    annot.beginTextEdit(gx, gy, null)
+                    break
+                case "select": {
+                    const s = annot.hitAt(gx, gy)
+                    root.ctl.select(s ? s.id : -1)
+                    if (s) {
+                        win.mode = "dragStroke"
+                        annot.beginMove(s, gx, gy)
+                    }
+                    break
+                }
+                }
+            }
+
+            onDoubleClicked: mouse => {
+                if (mouse.button !== Qt.LeftButton || win.toolKind !== "select")
+                    return
+                const s = annot.hitAt(win.toGlobalX(mouse.x), win.toGlobalY(mouse.y))
+                if (s && s.tool === "text") {
+                    if (win.mode === "dragStroke")
+                        annot.endMove()
+                    win.mode = "idle"
+                    annot.beginTextEdit(0, 0, s)
                 }
             }
 
             onPositionChanged: mouse => {
                 if (win.mode === "idle")
                     return
-
                 const c = win.clampToLayout(win.toGlobalX(mouse.x), win.toGlobalY(mouse.y))
-                const gx = c.x
-                const gy = c.y
-
                 switch (win.mode) {
                 case "creating":
-                    root.ctl.setSelection(Math.min(win.dragGX, gx), Math.min(win.dragGY, gy),
-                                          Math.abs(gx - win.dragGX), Math.abs(gy - win.dragGY))
+                    root.ctl.setSelection(Math.min(win.dragGX, c.x), Math.min(win.dragGY, c.y),
+                                          Math.abs(c.x - win.dragGX), Math.abs(c.y - win.dragGY))
                     break
-
                 case "moving": {
                     const o = win.origSel
-                    root.ctl.setSelection(o.x + (gx - win.dragGX), o.y + (gy - win.dragGY), o.w, o.h)
+                    root.ctl.setSelection(o.x + (c.x - win.dragGX), o.y + (c.y - win.dragGY), o.w, o.h)
                     break
                 }
-
-                case "drawing": {
-                    const pts = win.activePoints.slice()
-                    if (root.ctl.activeTool === "rect")
-                        pts[1] = {"x": gx, "y": gy}
-                    else
-                        pts.push({"x": gx, "y": gy})
-                    win.activePoints = pts
-                    if (root.ctl.activeTool === "pen")
-                        activeCanvas.requestPaint()
+                case "drawing":
+                    annot.updateStroke(c.x, c.y)
                     break
-                }
+                case "dragStroke":
+                    annot.updateMove(c.x, c.y)
+                    break
                 }
             }
 
             onReleased: mouse => {
                 if (mouse.button === Qt.RightButton)
                     return
-
-                if (win.mode === "drawing") {
-                    win.commitStroke()
-                } else if (win.mode === "creating" && root.ctl.selW < win.minSel
-                           && root.ctl.selH < win.minSel) {
-                    // A click, not a drag — discard the sliver.
-                    root.ctl.setSelection(0, 0, 0, 0)
+                switch (win.mode) {
+                case "drawing":
+                    annot.endStroke()
+                    break
+                case "dragStroke":
+                    annot.endMove()
+                    break
+                case "creating":
+                    if (root.ctl.selW < win.minSel && root.ctl.selH < win.minSel)
+                        root.ctl.setSelection(0, 0, 0, 0) // a click, not a drag
+                    break
                 }
                 win.mode = "idle"
                 win.resizeHandle = ""
@@ -485,23 +410,19 @@ Variants {
         // ── Resize handles ───────────────────────────────────────────────────
 
         Repeater {
-            model: win.hasSel && win.dimmable && root.ctl && root.ctl.activeTool === ""
+            model: win.hasSel && win.dimmable && win.toolKind === ""
                    ? ["tl", "t", "tr", "r", "br", "b", "bl", "l"] : []
 
             delegate: Rectangle {
                 id: handle
                 required property string modelData
 
-                readonly property real hx: {
-                    if (modelData.indexOf("l") !== -1) return win.selLX
-                    if (modelData.indexOf("r") !== -1) return win.selLX + win.selLW
-                    return win.selLX + win.selLW / 2
-                }
-                readonly property real hy: {
-                    if (modelData.indexOf("t") !== -1) return win.selLY
-                    if (modelData.indexOf("b") !== -1) return win.selLY + win.selLH
-                    return win.selLY + win.selLH / 2
-                }
+                readonly property real hx: modelData.indexOf("l") !== -1 ? win.selLX
+                                         : modelData.indexOf("r") !== -1 ? win.selLX + win.selLW
+                                         : win.selLX + win.selLW / 2
+                readonly property real hy: modelData.indexOf("t") !== -1 ? win.selLY
+                                         : modelData.indexOf("b") !== -1 ? win.selLY + win.selLH
+                                         : win.selLY + win.selLH / 2
 
                 width: win.handleSize
                 height: win.handleSize
@@ -514,7 +435,7 @@ Variants {
 
                 MouseArea {
                     anchors.fill: parent
-                    anchors.margins: -6 // easier to grab than the dot suggests
+                    anchors.margins: -6
                     cursorShape: {
                         switch (handle.modelData) {
                         case "tl": case "br": return Qt.SizeFDiagCursor
@@ -523,14 +444,12 @@ Variants {
                         default: return Qt.SizeHorCursor
                         }
                     }
-
                     onPressed: mouse => {
                         const p = mapToItem(null, mouse.x, mouse.y)
                         win.mode = "resizing"
                         win.resizeHandle = handle.modelData
                         win.beginDrag(win.toGlobalX(p.x), win.toGlobalY(p.y))
                     }
-
                     onPositionChanged: mouse => {
                         if (win.mode !== "resizing")
                             return
@@ -538,7 +457,6 @@ Variants {
                         const c = win.clampToLayout(win.toGlobalX(p.x), win.toGlobalY(p.y))
                         win.applyResize(c.x, c.y)
                     }
-
                     onReleased: {
                         win.mode = "idle"
                         win.resizeHandle = ""
@@ -547,133 +465,18 @@ Variants {
             }
         }
 
-        // ── Toolbar (bound to the selection — this is the whole feature) ─────
+        // ── Toolbar ──────────────────────────────────────────────────────────
+        // A Loader so that hiding the selection also destroys the buttons'
+        // tooltip Popups, which are parented to the window, not to the bar.
 
-        Rectangle {
-            id: toolbar
-
-            readonly property int gap: Theme.spacingS
-            readonly property int pad: Theme.spacingS
-
-            visible: win.hasSel && win.dimmable && win.ownsSelection && win.mode !== "creating"
-            width: toolRow.implicitWidth + Theme.spacingM * 2
-            height: toolRow.implicitHeight + Theme.spacingS * 2
-            radius: Theme.cornerRadius
-            color: Theme.surfaceContainer
-            border.color: Theme.withAlpha(Theme.outline, 0.2)
-            border.width: 1
-
-            // Right-aligned with the selection, clamped to the screen.
-            x: Math.max(pad, Math.min(win.width - width - pad,
-                                      win.selLX + win.selLW - width))
-            // Below the selection; flip above when there's no room; last resort
-            // is tucking it inside the selection's bottom edge.
-            y: (win.selLY + win.selLH + gap + height < win.height)
-               ? win.selLY + win.selLH + gap
-               : ((win.selLY - gap - height > 0)
-                  ? win.selLY - gap - height
-                  : Math.max(pad, win.selLY + win.selLH - height - gap))
-
-            Row {
-                id: toolRow
-                anchors.centerIn: parent
-                spacing: Theme.spacingXS
-
-                Repeater {
-                    model: [
-                        {"id": "rect", "label": "▭", "tip": "矩形"},
-                        {"id": "pen", "label": "✎", "tip": "画笔"},
-                        {"id": "|", "label": "", "tip": ""},
-                        {"id": "undo", "label": "↶", "tip": "撤销"},
-                        {"id": "redo", "label": "↷", "tip": "重做"},
-                        {"id": "|", "label": "", "tip": ""},
-                        {"id": "cancel", "label": "✕", "tip": "取消"},
-                        {"id": "done", "label": "✓", "tip": "复制到剪贴板"}
-                    ]
-
-                    delegate: Item {
-                        required property var modelData
-
-                        readonly property bool isSep: modelData.id === "|"
-                        readonly property bool isTool: modelData.id === "rect" || modelData.id === "pen"
-                        readonly property bool isActive: isTool && root.ctl.activeTool === modelData.id
-                        readonly property bool isEnabled: {
-                            if (modelData.id === "undo") return root.ctl.canUndo
-                            if (modelData.id === "redo") return root.ctl.canRedo
-                            return true
-                        }
-
-                        width: isSep ? 1 : 30
-                        height: 28
-
-                        Rectangle {
-                            visible: parent.isSep
-                            anchors.centerIn: parent
-                            width: 1
-                            height: 18
-                            color: Theme.withAlpha(Theme.outline, 0.3)
-                        }
-
-                        Rectangle {
-                            visible: !parent.isSep
-                            anchors.fill: parent
-                            radius: Theme.cornerRadiusSmall
-                            color: {
-                                if (parent.isActive)
-                                    return Theme.withAlpha(Theme.primary, 0.25)
-                                if (btnArea.containsMouse && parent.isEnabled)
-                                    return Theme.withAlpha(Theme.primary, 0.12)
-                                return "transparent"
-                            }
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: modelData.label
-                                font.pixelSize: Theme.fontSizeMedium
-                                color: {
-                                    if (!isEnabled)
-                                        return Theme.withAlpha(Theme.surfaceVariantText, 0.4)
-                                    if (modelData.id === "done")
-                                        return Theme.success
-                                    if (modelData.id === "cancel")
-                                        return Theme.error
-                                    if (isActive)
-                                        return Theme.primary
-                                    return Theme.surfaceText
-                                }
-                            }
-
-                            MouseArea {
-                                id: btnArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: isEnabled
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    switch (modelData.id) {
-                                    case "rect":
-                                    case "pen":
-                                        root.ctl.activeTool =
-                                            root.ctl.activeTool === modelData.id ? "" : modelData.id
-                                        break
-                                    case "undo":
-                                        root.ctl.undo()
-                                        break
-                                    case "redo":
-                                        root.ctl.redo()
-                                        break
-                                    case "cancel":
-                                        root.ctl.cancel()
-                                        break
-                                    case "done":
-                                        root.ctl.finish()
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+        Loader {
+            id: toolbarLoader
+            anchors.fill: parent
+            active: win.hasSel && win.dimmable && win.ownsSelection && win.mode !== "creating"
+            sourceComponent: Toolbar {
+                overlay: win
+                ctl: root.ctl
+                onPickCustomColor: win.openPicker()
             }
         }
 
@@ -692,78 +495,93 @@ Variants {
         // ── Keyboard ─────────────────────────────────────────────────────────
 
         Item {
+            id: keyHandler
             anchors.fill: parent
             focus: true
 
             Keys.onPressed: event => {
                 if (!root.ctl)
                     return
+                const ctrl = event.modifiers & Qt.ControlModifier
+                const shift = event.modifiers & Qt.ShiftModifier
 
-                if (event.key === Qt.Key_Escape) {
-                    if (root.ctl.activeTool !== "")
-                        root.ctl.activeTool = ""
-                    else
-                        root.ctl.cancel()
+                switch (event.key) {
+                case Qt.Key_Escape:
+                    win.peelBack()
                     event.accepted = true
                     return
-                }
-
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    root.ctl.finish()
+                case Qt.Key_Return:
+                case Qt.Key_Enter:
+                    root.ctl.finishWith("default")
                     event.accepted = true
                     return
-                }
-
-                if (event.modifiers & Qt.ControlModifier) {
-                    switch (event.key) {
-                    case Qt.Key_C:
-                        root.ctl.finish()
+                case Qt.Key_Delete:
+                case Qt.Key_Backspace:
+                    if (root.ctl.selectedId >= 0) {
+                        root.ctl.deleteStroke(root.ctl.selectedId)
                         event.accepted = true
-                        return
-                    case Qt.Key_Z:
-                        if (event.modifiers & Qt.ShiftModifier)
-                            root.ctl.redo()
-                        else
-                            root.ctl.undo()
-                        event.accepted = true
-                        return
-                    case Qt.Key_Y:
-                        root.ctl.redo()
-                        event.accepted = true
-                        return
                     }
+                    return
                 }
 
-                // Tool shortcuts
-                if (event.key === Qt.Key_R) {
-                    root.ctl.activeTool = root.ctl.activeTool === "rect" ? "" : "rect"
+                if (ctrl) {
+                    switch (event.key) {
+                    case Qt.Key_C: root.ctl.finishWith("copy"); break
+                    case Qt.Key_S: root.ctl.finishWith("save"); break
+                    case Qt.Key_Z: shift ? root.ctl.redo() : root.ctl.undo(); break
+                    case Qt.Key_Y: root.ctl.redo(); break
+                    default: return
+                    }
                     event.accepted = true
-                } else if (event.key === Qt.Key_P) {
-                    root.ctl.activeTool = root.ctl.activeTool === "pen" ? "" : "pen"
-                    event.accepted = true
+                    return
+                }
+
+                if (event.modifiers & Qt.AltModifier)
+                    return
+                if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
+                    const letter = String.fromCharCode(65 + (event.key - Qt.Key_A))
+                    const t = Tools.byKey(letter, root.ctl.enabledTools)
+                    if (t) {
+                        root.ctl.setTool(t.id)
+                        event.accepted = true
+                    }
                 }
             }
         }
 
         // ── Export ───────────────────────────────────────────────────────────
         // grabToImage renders exportRoot's subtree at the requested pixel size,
-        // so asking for selection × scale samples the frame texture at its full
-        // native resolution. The selection decorations are siblings of
-        // exportRoot and stay out of the picture.
+        // so asking for selection × scale samples the frame texture at its
+        // full native resolution. Decorations are siblings and stay out.
 
         function doExport() {
+            if (annot.editingText) {
+                // Commit, then give the canvas a frame to repaint before grabbing.
+                annot.commitTextEdit()
+                exportDelay.restart()
+                return
+            }
+            root.ctl.select(-1)
+            exportDelay.restart()
+        }
+
+        Timer {
+            id: exportDelay
+            interval: 40
+            onTriggered: win.grabNow()
+        }
+
+        function grabNow() {
             const s = win.outScale
             // grabToImage's targetSize is in LOGICAL units — Qt multiplies it by
-            // the window's devicePixelRatio on the way to pixels. Divide it back
-            // out, or a 2x screen yields an image at twice the intended size.
-            // outScale and dpr differ under fractional scaling (dpr reports the
-            // integer buffer scale), so both are needed.
+            // the window's devicePixelRatio. outScale and dpr differ under
+            // fractional scaling, so both are needed.
             const d = modelData.devicePixelRatio || 1
             const w = Math.max(1, Math.round(root.ctl.selW * s / d))
             const h = Math.max(1, Math.round(root.ctl.selH * s / d))
             const path = "/tmp/dmsplus_" + Date.now() + ".png"
 
-            const ok = exportRoot.grabToImage(result => {
+            const ok = annot.exportItem.grabToImage(result => {
                 if (!result.saveToFile(path)) {
                     console.warn("screenshotPlus: saveToFile failed for", path)
                     root.ctl.cancel()
