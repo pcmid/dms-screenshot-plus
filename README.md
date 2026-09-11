@@ -20,6 +20,12 @@ niri 和 DMS 自带的截图都是两段式——先选区截图落盘，再打�
 
 这不是靠事件同步实现的。选区框、工具栏、标注层活在同一个 QML 场景里，工具栏的位置就是绑定到选区矩形的一条表达式，所以它们天然一起动，这部分没有一行同步代码。
 
+### 九种标注 + 选择/移动/删除
+
+矩形、椭圆、直线、箭头、画笔、荧光笔、文字、马赛克、序号标记。选择工具可以点选已画的标注拖动位置、Delete 删除、双击文字重新编辑。撤销/重做是快照式的，移动和删除都能回退。
+
+工具栏显示哪些工具、默认颜色和粗细、截完是复制还是落盘，都在 DMS 设置页里配置。
+
 ### 快：按下到画面变暗约 82ms
 
 | 阶段 | 耗时 |
@@ -31,9 +37,7 @@ niri 和 DMS 自带的截图都是两段式——先选区截图落盘，再打�
 
 ### 导出是原分辨率，不是缩放糊图
 
-HiDPI 屏上按物理像素导出：1920×1080@2x 的屏幕上选 500×400 的逻辑区域，出来的是 **1000×800** 的真实像素，文字 1:1 锐利。
-
-**当前状态：验证原型**。交互和导出链路已跑通，工具只有矩形框和画笔。
+HiDPI 屏上按物理像素导出：1920×1080@2x 的屏幕上选 500×400 的逻辑区域，出来的是 **1000×800** 的真实像素，文字 1:1 锐利。马赛克也是在源像素上做的，不是把糊图放大。
 
 ---
 
@@ -71,44 +75,75 @@ dms ipc call plugins enable screenshotPlus
 dms ipc call screenshotPlus capture
 ```
 
-| 操作 | 效果 |
-|---|---|
-| 拖动空白处 | 拉出选区 |
-| 拖动选区内部 | 整体移动选区 |
-| 拖动 8 个圆点 | 调整选区边界 |
-| 工具栏 ▭ / ✎ 或 `R` / `P` | 切换矩形框 / 画笔（选中后在选区内拖动即作画） |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | 撤销 / 重做 |
-| `Enter` 或 `Ctrl+C` 或 ✓ | 复制到剪贴板并发通知 |
-| `Esc` / 右键 | 先退出当前工具，再按则取消整个截图 |
-
 绑到 niri：
 
 ```kdl
 Mod+Shift+S { spawn "dms" "ipc" "call" "screenshotPlus" "capture"; }
 ```
 
+### 选区
+
+| 操作 | 效果 |
+|---|---|
+| 拖动空白处 | 拉出选区 |
+| 拖动选区内部（未选工具时） | 整体移动选区 |
+| 拖动 8 个圆点 | 调整选区边界 |
+| `Enter` / ✓ | 按设置输出（默认复制到剪贴板）并结束 |
+| `Ctrl+C` / 复制按钮 | 复制到剪贴板 |
+| `Ctrl+S` / 保存按钮 | 保存到文件（通知里带「打开 / 打开目录」） |
+| `Esc` / 右键 | 逐层退出：编辑中的文字 → 选中的标注 → 当前工具 → 整个截图 |
+
+### 工具
+
+| 工具 | 键 | 操作 |
+|---|---|---|
+| 选择 | `S` | 点选标注；拖动移动；`Delete` 删除；双击文字进入编辑 |
+| 矩形 / 椭圆 / 直线 / 箭头 / 马赛克 | `R` `E` `L` `A` `M` | 在选区内拖出 |
+| 画笔 / 荧光笔 | `P` `H` | 在选区内画 |
+| 文字 | `T` | 点一下开始输入；`Enter` 提交，`Shift+Enter` 换行，`Esc` 取消，点别处也提交；支持输入法 |
+| 序号 | `N` | 点一下放一个自增编号；删掉中间的会自动重排 |
+| 撤销 / 重做 | `Ctrl+Z` / `Ctrl+Shift+Z` | 快照式，移动和删除也能回退 |
+
+工具栏的调色板按钮打开样式面板：8 个预设色 + 自定义（DMS 的取色器），以及 S / M / L / XL 四档粗细。**每个工具记住自己的粗细**——画笔选了 L 不影响文字的字号。
+
+### 设置
+
+DMS 设置 → 插件 → Screenshot+：
+
+- **工具栏**：每个工具一个开关。关掉的不显示，快捷键也失效
+- **默认样式**：颜色、粗细档
+- **输出**：复制到剪贴板 / 保存到文件 / 保存目录（留空 = 系统图片目录下的 `Screenshots`）/ 完成后通知
+- **冻结帧后端**：`cli`（默认）或 `screencopy`（快但要求修复过的 Quickshell，见[坑 1](#1-️-screencopy-后端会崩溃整个桌面quickshell-上游-bug已定位到根因)）
+
 ## IPC
 
 ```
 dms ipc call screenshotPlus capture                  # 唤起 overlay（绑快捷键用这个）
 dms ipc call screenshotPlus captureWith <backend>    # 本次用 cli | screencopy，不持久
-dms ipc call screenshotPlus setBackend <backend>      # 持久切换默认后端（写入插件设置）
+dms ipc call screenshotPlus setBackend <backend>      # 持久切换后端（等价于设置页）
 dms ipc call screenshotPlus cancel                   # 关闭
-dms ipc call screenshotPlus status                   # JSON 状态 + 耗时
+dms ipc call screenshotPlus finish                   # 按设置输出并结束
+dms ipc call screenshotPlus finishWith <intent>      # default | copy | save
+dms ipc call screenshotPlus status                   # JSON：选区、工具、颜色、各工具粗细、历史深度、生效的设置、耗时
 dms ipc call screenshotPlus select <x> <y> <w> <h>   # 不用鼠标设定选区（全局逻辑坐标）
-dms ipc call screenshotPlus finish                   # 导出并复制
-dms ipc call screenshotPlus testStroke               # 自测：在选区内画一框一线
+dms ipc call screenshotPlus setTool <tool>           # 切换工具（禁用的工具返回 BAD_TOOL）
+dms ipc call screenshotPlus setColor <#rrggbb>
+dms ipc call screenshotPlus testStrokeTool <tool>    # 在选区内放一笔代表性的标注
+dms ipc call screenshotPlus testAll                  # 所有启用工具各放一笔，网格排布
+dms ipc call screenshotPlus hitTest <x> <y>          # 该点命中的标注 {id, tool} 或 null
+dms ipc call screenshotPlus selectStroke <id> | moveSelected <dx> <dy> | deleteSelected
+dms ipc call screenshotPlus undo | redo | strokesJson
 ```
 
-`select` / `finish` / `testStroke` 让整条导出链路可以脱离鼠标做自动化验证：
+这些让整条链路可以脱离鼠标做回归：
 
 ```bash
 dms ipc call screenshotPlus capture; sleep 1.5
-dms ipc call screenshotPlus select 400 300 500 400
-dms ipc call screenshotPlus testStroke
-dms ipc call screenshotPlus finish; sleep 2
-wl-paste --type image/png > /tmp/t.png && identify /tmp/t.png
-# 1920x1080@2x 的屏幕上，500x400 的逻辑选区必须导出成 1000x800 物理像素
+dms ipc call screenshotPlus select 200 150 1200 800
+dms ipc call screenshotPlus testAll
+dms ipc call screenshotPlus finishWith save; sleep 2
+identify "$(dms ipc call screenshotPlus status | jq -r .lastSaved)"
+# 1920x1080@2x 的屏幕上必须是 2400x1600
 ```
 
 `status` 里的 `grabMs` / `readyMs` 是内建的耗时埋点，改动后可直接回归性能。
@@ -137,9 +172,25 @@ overlay 也因此改成**立刻映射**：抓帧还在飞的时候窗口就已�
 
 | 文件 | 职责 |
 |---|---|
-| `ScreenshotPlusDaemon.qml` | IPC、冻结帧编排、共享状态（选区 / 标注栈）、导出后处理 |
-| `CaptureOverlay.qml` | `Variants{Quickshell.screens}` → 每屏一个全屏 layer-shell 窗口；遮罩、选区、工具栏、标注、导出 |
-| `lib/Renderer.js` | `drawStroke()`——屏上和导出共用同一份，所见即所得 |
+| `ScreenshotPlusDaemon.qml` | 共享状态（选区、strokes + 快照历史、工具/颜色/各工具粗细、选中项）、冻结帧编排、从设置派生的行为、导出后处理（剪贴板 / 落盘 / 通知）、IPC |
+| `CaptureOverlay.qml` | 每屏一个全屏 layer-shell 窗口：坐标换算、冻结帧、遮罩、选区与把手、主 MouseArea 按工具类型分派、键盘、导出、取色器的焦点切换 |
+| `AnnotationLayer.qml` | 导出子树（帧副本 / 马赛克层 / 已提交笔画 / 正在画的一笔）+ 作为**兄弟节点**的选中框和文字编辑器 |
+| `Toolbar.qml` | `DankActionButton` 工具栏 + 颜色/粗细面板；用 `Loader` 挂载，随选区一起销毁 |
+| `ScreenshotPlusSettings.qml` | DMS 设置页 |
+| `lib/Tools.js` | 工具注册表（唯一真源）：图标、快捷键、交互类型 `drag/path/click/text/select`、S/M/L/XL 粗细表 |
+| `lib/Renderer.js` | 在 Canvas 上画每种笔画；序号按创建序临时编号 |
+| `lib/Hit.js` | 包围盒、按工具的命中测试、平移（返回新对象，从不改原 stroke） |
+| `lib/Config.js` | 设置的默认值，daemon 与设置页共用一份 |
+
+### 数据模型
+
+```js
+stroke = { id, tool, color, width, points: [{x, y}, …],   // 全局逻辑坐标；两点类不归一化，消费方 min/max
+           text, w, h, lineHeight, font }                   // 仅文字
+// width 的语义按工具：线宽 | 字号 | 马赛克块大小 | 序号半径
+```
+
+stroke 进入 `strokes` 之后视为不可变；移动、改文字都生成新对象整体替换数组。这样撤销历史只是「数组快照的数组」，共享 stroke 引用，画笔的几千个点不会被复制；QML 也总能看到变化（它检测不到就地修改）。
 
 ### 坐标系
 
@@ -158,6 +209,8 @@ overlay 也因此改成**立刻映射**：抓帧还在飞的时候窗口就已�
 `exportRoot` 这棵子树**就是**导出的图：一份自己的冻结帧副本，加上标注，裁剪到选区。对它 `grabToImage()` 拿到的正好是要的结果——不需要裁剪运算。选区的边框/圆点/工具栏是它的**兄弟节点**而非子节点，所以永远不会被拍进去。
 
 帧副本用 `ShaderEffectSource` 复用底下那个 item 已经持有的纹理（screencopy 模式复用 `ScreencopyView`，CLI 模式复用 `Image`），不做第二次捕获、不做第二次 PNG 解码。`textureSize` 钉在源像素上，保证 grab 采样到全分辨率而不是屏幕上的显示尺寸。
+
+马赛克是同一招的反用：每个马赛克矩形一个 `ShaderEffectSource`，`sourceRect` 对准那块区域，`textureSize` 故意缩到「矩形尺寸 ÷ 块大小」，显示时 `smooth: false` 用最近邻放大——像素化在 GPU 上完成，两种后端通用，导出时随子树一起 grab。选这条路是因为 Canvas 拿不到像素：`drawImage` 不接受 Image item，`ScreencopyView` 又没有 URL 可 `loadImage`。
 
 ### 两种 backend
 
@@ -244,10 +297,18 @@ DMS 把自己的 Logger 单例路由到 journald（那些 `INFO qml: [Name:line]
 
 `niri msg -j windows` 的 `tile_pos_in_workspace_view` 实测恒为 `null`，所以「自动吸附到窗口边界」这类功能做不了，只能走 `dms screenshot window`。
 
+### 9. 子组件属性名不能和外层 id 同名
+
+`Toolbar { win: win }`——右边的 `win` 会先解析成 Toolbar **自己**的 `win` 属性，得到 null（工具栏跑到了屏幕左上角）。直接声明在父组件里时有时能侥幸解析到 id，放进 `Loader` / `Repeater` 的 Component 里就必然自引用。给传递用的属性起一个不会与任何 id 重名的名字（这里用 `overlay`）。
+
+### 10. `id: layer` 会被 `Item.layer` 遮住
+
+每个 `Item` 都有 `layer` 分组属性（`layer.enabled` 那个）。给根元素起 `id: layer` 之后，在 Repeater delegate 里写 `layer.frameItem`，解析到的是 delegate 自己的 `Item.layer`，值是 undefined——马赛克的 `sourceItem` 因此为 null，没有任何报错。同理避开 `parent`、`children`、`anchors`、`data` 这类名字。
+
 ---
 
 ## 待办
 
-核心六件套补齐（椭圆 / 箭头 / 文字 / 马赛克）→ 颜色与线宽选择器 → dankbar widget + 设置页 → 多屏（跨屏选区、多个 Exclusive 键盘层的冲突）。
+resize 已画的标注（现在只能移动）→ 多屏（跨屏选区、多个 Exclusive 键盘层的冲突）→ 高斯模糊（需要 shader，Canvas 做不了）。
 
-画笔当前用全屏尺寸的 Canvas 做实时预览，4K 下拖动时可能掉帧；若确实卡，把活动层缩到笔画的 bounding box。
+画笔实时预览用的是全屏尺寸的 Canvas，4K 下拖动时若掉帧，把活动层缩到笔画的 bounding box。
