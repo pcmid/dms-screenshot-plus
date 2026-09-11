@@ -22,15 +22,15 @@ PluginComponent {
     property bool active: false
     property bool capturing: false
 
-    // "cli" shells out to `dms screenshot` and loads a PNG.
-    //
-    // "screencopy" reads the GPU texture directly and is much faster, but on
-    // NVIDIA + nvidia-drm, releasing the capture's dmabuf as the
-    // overlay unmaps crashes Quickshell inside
-    // QWaylandWindow::calculateScreenFromSurfaceEvents() — taking the whole
-    // shell down with it. Experimental; opt in per call with
-    // `dms ipc call screenshotPlus captureWith screencopy`.
-    property string backend: "cli"
+    // "cli" shells out to `dms screenshot` and loads a PNG (~80ms to a dimmed
+    // screen, ~170ms to the frame). "screencopy" reads the compositor's frame
+    // through ScreencopyView (~50ms to the frame) but crashes stock Quickshell
+    // <= 0.3.1: its wlr screencopy backend binds a second wl_output carrying
+    // Qt's own listener, QtWayland mistakes it for a screen and later
+    // dereferences it after it is freed — quickshell-mirror/quickshell#1094.
+    // The default stays "cli" until that fix ships. Persist a choice with
+    // `dms ipc call screenshotPlus setBackend screencopy`.
+    property string backend: pluginData.backend === "screencopy" ? "screencopy" : "cli"
 
     // screenName -> "/tmp/dmsplus-freeze-<name>-<stamp>.png"
     property var freezes: ({})
@@ -320,6 +320,17 @@ PluginComponent {
         return "'" + String(s).replace(/'/g, "'\\''") + "'"
     }
 
+    // PluginComponent only loads settings; writing goes through the service.
+    // Mirror the value locally so bindings update without waiting for the
+    // pluginDataChanged round trip.
+    function savePluginData(key, value) {
+        if (pluginService && pluginId)
+            pluginService.savePluginData(pluginId, key, value)
+        const next = Object.assign({}, root.pluginData)
+        next[key] = value
+        root.pluginData = next
+    }
+
     // ── Wiring ───────────────────────────────────────────────────────────────
 
     CaptureOverlay {
@@ -337,11 +348,20 @@ PluginComponent {
             return "OK"
         }
 
-        // backend: "cli" or "screencopy" (experimental, see the `backend` property).
+        // One-off override; does not persist. See the `backend` property.
         function captureWith(backend: string): string {
             if (backend === "screencopy" || backend === "cli")
                 root.backend = backend
             root.capture()
+            return "OK"
+        }
+
+        // Persist the backend ("cli" | "screencopy") in the plugin settings.
+        function setBackend(backend: string): string {
+            if (backend !== "screencopy" && backend !== "cli")
+                return "BAD_ARGS"
+            root.savePluginData("backend", backend)
+            root.backend = backend
             return "OK"
         }
 

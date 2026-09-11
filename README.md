@@ -91,7 +91,8 @@ Mod+Shift+S { spawn "dms" "ipc" "call" "screenshotPlus" "capture"; }
 
 ```
 dms ipc call screenshotPlus capture                  # 唤起 overlay（绑快捷键用这个）
-dms ipc call screenshotPlus captureWith <backend>    # 指定 cli | screencopy
+dms ipc call screenshotPlus captureWith <backend>    # 本次用 cli | screencopy，不持久
+dms ipc call screenshotPlus setBackend <backend>      # 持久切换默认后端（写入插件设置）
 dms ipc call screenshotPlus cancel                   # 关闭
 dms ipc call screenshotPlus status                   # JSON 状态 + 耗时
 dms ipc call screenshotPlus select <x> <y> <w> <h>   # 不用鼠标设定选区（全局逻辑坐标）
@@ -160,30 +161,45 @@ overlay 也因此改成**立刻映射**：抓帧还在飞的时候窗口就已�
 
 ### 两种 backend
 
-| | 延迟 | 状态 |
-|---|---|---|
-| `cli`（默认） | ~82ms | 稳定 |
-| `screencopy` | 近乎 0 | ⚠️ **会崩掉整个 shell，见下** |
+| | 画面变暗 | 冻结帧就绪 | 状态 |
+|---|---|---|---|
+| `cli`（默认） | ~82ms | ~172ms | 任何 Quickshell 都稳定 |
+| `screencopy` | — | **~53ms** | ⚠️ 需要打了 [quickshell#1094](https://github.com/quickshell-mirror/quickshell/issues/1094) 补丁的 Quickshell；原版 ≤ 0.3.1 **会崩掉整个 shell**，见下 |
 
-CLI 路径：`dms screenshot output -o <name> --dir /tmp --json`，落盘再显示。JSON 直接返回 `scale`，不必自己查缩放。
+CLI 路径：`dms screenshot output -o <name> --dir /tmp --json`，落盘再显示。JSON 直接返回 `scale`，不必自己查缩放。screencopy 路径：`ScreencopyView` 直接拿合成器的帧，没有编码、落盘、解码三步，画面一出来就是冻结帧。
+
+默认永远是 `cli`，因为插件无法探测 Quickshell 有没有打补丁。确认自己的 Quickshell 已修复后，`dms ipc call screenshotPlus setBackend screencopy` 持久切换。
 
 ---
 
 ## 踩过的坑（务必先读）
 
-### 1. ⚠️ screencopy 后端会崩溃整个桌面
+### 1. ⚠️ screencopy 后端会崩溃整个桌面（Quickshell 上游 bug，已定位到根因）
 
-`ScreencopyView` 能抓到干净的帧（已验证不会套娃），速度也远胜 CLI。但 overlay unmap 时释放捕获用的 dmabuf 会让 Quickshell 直接段错误，**整个 DMS 连同 bar 一起挂掉**：
+`ScreencopyView` 能抓到干净的帧（已验证不会套娃），速度也远胜 CLI。但 overlay 隐藏时 Quickshell 会段错误，**整个 DMS 连同 bar 一起挂掉**。四次崩溃栈完全一致，`QS_DISABLE_DMABUF=1`（走 SHM）照崩，所以**与 dmabuf / NVIDIA 无关**。上游 [quickshell#876](https://github.com/quickshell-mirror/quickshell/issues/876)（niri + PanelWindow + ScreencopyView 反复开关）和 [#193](https://github.com/quickshell-mirror/quickshell/issues/193) 是同一个问题，但都没人给出原因；完整的根因分析（core 数据、协议流、源码引用、修法建议）已提交为 [quickshell#1094](https://github.com/quickshell-mirror/quickshell/issues/1094)。
 
-```
-#1 QPlatformScreen::screen()
-#2 QWaylandWindow::calculateScreenFromSurfaceEvents()
-#10 wl_display_dispatch_queue_pending
-```
+**根因：Quickshell 用 Qt 自己的 `QtWayland::wl_output` 类对同一个显示器又 bind 了一份 `wl_output`，Qt 把这个代理误认成自己的屏幕。** 链条四环，每一环都有实证：
 
-崩溃日志的最后两行正是 `Destroyed WlDmaBuffer(size=3840x2160)` 和 `Destroying GBM device`。复现环境是 NVIDIA + `nvidia-drm`，dmabuf 路径一向脆弱；其它驱动上未验证过，可能不受影响。
+1. **Quickshell 多绑一份 `wl_output`。** `WlrScreencopyContext` 里内嵌的 `OutputTransformQuery : public QtWayland::wl_output`（`wlr_screencopy_p.hpp:48`）在构造时 `init(registry, globalId, 3)` 重新 bind 显示器的 global，只为读一个 `transform` 字段——源码注释自称 "cursed hack"。析构时 `release()`。协议流：
+   ```
+   bind(46, "wl_output", 4, #21)   ← Qt 启动时绑的
+   bind(46, "wl_output", 3, #38)   ← 每次 screencopy 会话 Quickshell 再绑一份
+   ```
+2. **niri 对每个代理都发 `enter`。** smithay 的 `Output::enter()` 遍历该客户端**所有** `wl_output` 资源逐个 `surface.enter()`（`src/wayland/output/mod.rs:308`）。协议流里同一个 surface 连着收到 `enter(wl_output#21)` 和 `enter(wl_output#38)`。
+3. **Qt 的身份校验形同虚设。** `QWaylandScreen::fromWlOutput()` → 生成代码 `wl_output::fromObject()` 只比较监听器地址是否等于 `&m_wl_output_listener`——而 Quickshell 调的正是 Qt 的 `init()`，装的就是这同一个静态监听器，校验必然通过。于是 `static_cast<QWaylandScreen*>(user_data)` 把 `OutputTransformQuery` 对象**减去 16 字节**（`wl_output` 在 `QWaylandScreen` 里的基类偏移，gdb 实测）后当成 `QWaylandScreen` 塞进 `m_screens`。
+4. **悬空项永远清不掉。** 会话结束 `release()` 掉的代理不会再收到 `leave`；而 overlay 隐藏时 Qt 真正的屏幕却被 `leave(#21)` 正常移除。core 里崩溃窗口的 `m_screens` 只剩 **一个** 元素 `0x7fb5cdc90110`，与 display 里活着的屏幕 `0x7fb62b875c40` 完全不是一个东西；它指向已 `delete` 的 context 内存（前后 48 字节全零），`oldestEnteredScreen()` 对它调 `->screen()` 时读 `d_ptr` 得 0，SIGSEGV。
 
-所以默认 `cli`。要试就 `captureWith screencopy`，并且知道可能得重启 shell。真要修，方向是**分两阶段拆除**：先把 `captureSource` 置 null，等几帧确认 dmabuf 已释放，再让窗口 unmap——不要让两件事发生在同一帧。
+为什么裸的最小复现多半不崩、DMS 稳定崩：hide 时 Quickshell 把 QWindow `deleteLater()`，unmap 的 `commit` 又要等事件循环空闲才 flush——两者在同一轮循环里发生，合成器还没看到 unmap，surface 就已经没了，它回的 `leave` 被 `discarded`。**只有当 tick 中途有人 flush 了连接、且 tick 比合成器一个来回更长时才会崩**：threaded 渲染循环下其它窗口一重绘，渲染线程 `eglSwapBuffers` 就把主线程排队的 unmap 一起冲出去了，`leave` 回来排在队列里，下一次 `awake` 先派发它、后执行 DeferredDelete。DMS teardown 时 bar 恰好在重绘。给最小复现加一个持续动画的窗口 + hide 后忙等 30ms，就 3/3 必崩，栈完全一致（见 issue）。
+
+复现于 Quickshell 0.3.1（master 上 `OutputTransformQuery` 未变）+ Qt 6.11.2 + niri 26.04。「对每个 `wl_output` 资源各发一次 `enter`」是协议层的标准行为：smithay 这么做，wlroots 的 `wlr_surface_send_enter()` 也遍历全部资源，还会在客户端新 bind 时对已有 surface 补发——sway/Hyprland 同样会触发，合成器无责。
+
+**修法在 Quickshell 侧**。`QtWayland::wl_output` 是 Qt 的私有生成类，Qt 内部默认「进程里每个这样的实例都是 `QWaylandScreen`」（`fromWlOutput` 的 `static_cast` 就建立在这上面）；Quickshell 拿它派生了一个不是屏幕的东西，打破了这条约定。修法是保留那份额外 bind，但**用自己的 `wl_output_listener`** 手动 `wl_registry_bind` + `wl_output_add_listener`——`fromWlOutput` 认不出它就会直接忽略。
+
+走过一条弯路值得记下：直觉上更干净的做法是根本不额外 bind，直接读 `QWaylandScreen::mTransform`（它是 protected，`setScreen()` 已经用 reflector 读同一段里的 `m_outputId`）。**这不行**——Qt 在 `updateOutputProperties()` 里用完就把它重置成 -1，而 `QScreen::orientation()` 又明确忽略四种 flipped 变换。实测这样改出来的版本在 `transform 90` 的屏幕上抓到的是没旋转的横图。私有 listener 的版本在本机 v0.3.1 和 master 上都验证过：确定性复现 3/3 跑满，正常与旋转 90° 的抓帧都和 `dms screenshot` 一致。
+
+Qt 侧把 `static_cast` 换成 `dynamic_cast` 也能免疫，但那是加固不是根治。插件侧没有可靠的规避手段（悬空项在 `enter` 时就已经种下）。
+
+补丁在 [pcmid/quickshell 的 `screencopy-private-output-listener` 分支](https://github.com/pcmid/quickshell/tree/screencopy-private-output-listener)，已提交上游。打上补丁（Arch 可用官方 PKGBUILD 加 `prepare()` 自行打包）后 `setBackend screencopy` 即可；没打补丁就别开，会崩 shell。
 
 ### 2. 改了 QML 却没生效 → 必须 shell 级 reload
 
