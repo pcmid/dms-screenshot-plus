@@ -455,7 +455,7 @@ PluginComponent {
         case "text": {
             const lh = Math.round(w * 1.3)
             return { "tool": tool, "color": color, "width": w, "points": [P(0.1, 0.2)],
-                     "text": "Test\n测试", "w": Math.round(w * 0.6 * 4), "h": lh * 2, "lineHeight": lh, "font": Theme.fontFamily }
+                     "text": "Test\n测试", "w": Math.round(w * 0.6 * 4), "h": lh * 2, "lineHeight": lh, "font": (/variable/i.test(Theme.fontFamily) ? "sans-serif" : Theme.fontFamily) }
         }
         }
         return null

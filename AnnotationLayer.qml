@@ -55,6 +55,14 @@ Item {
     // top edge compared to Canvas' "top" baseline. Adjusted after eyeballing.
     readonly property real textYNudge: 0
 
+    // Font for everything the Canvas draws (text tool, number labels) and for
+    // the TextEdit, so what you type is what gets painted. Canvas goes through
+    // QPainter's outline rasteriser, which mangles glyphs with overlapping
+    // contours in variable fonts — DMS's default "Inter Variable" renders a
+    // broken "4" — while Qt Quick's own text path is fine. Fall back to the
+    // system sans in that case.
+    readonly property string canvasFont: /variable/i.test(Theme.fontFamily) ? "sans-serif" : Theme.fontFamily
+
     anchors.fill: parent
 
     onHiddenIdChanged: bakedCanvas.requestPaint()
@@ -331,7 +339,7 @@ Item {
                     return
                 Renderer.drawAll(ctx, ctl.strokes, {
                     "offsetX": -overlay.originX, "offsetY": -overlay.originY,
-                    "excludeId": annot.hiddenId, "fontFamily": Theme.fontFamily
+                    "excludeId": annot.hiddenId, "fontFamily": annot.canvasFont
                 })
             }
 
@@ -379,7 +387,7 @@ Item {
                 if (!s)
                     return
                 const cfg = { "offsetX": -overlay.originX - overlay.selLX, "offsetY": -overlay.originY - overlay.selLY,
-                              "numberIndex": Renderer.numbering(ctl.strokes), "fontFamily": Theme.fontFamily }
+                              "numberIndex": Renderer.numbering(ctl.strokes), "fontFamily": annot.canvasFont }
                 if (annot.dragId < 0)
                     cfg.numberIndex[s.id] = Object.keys(cfg.numberIndex).length + 1 // the number it will get
                 Renderer.drawStroke(ctx, s, cfg)
@@ -438,7 +446,7 @@ Item {
             x: textEditor.pad
             y: textEditor.pad
             width: Math.max(8, contentWidth + 4)
-            font.family: Theme.fontFamily
+            font.family: annot.canvasFont
             font.pixelSize: annot.textSession ? annot.textSession.fontSize : 24
             color: ctl ? ctl.strokeColor : "red"
             wrapMode: TextEdit.NoWrap
