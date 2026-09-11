@@ -17,6 +17,8 @@ Drag out a selection, and the toolbar appears next to it. Draw on the picture ri
 
 Requires DankMaterialShell 1.6 or later.
 
+Optional: `ffmpeg` or ImageMagick. With one of them installed the overlay writes an uncompressed image and closes at once, and the PNG is encoded in the background. Without them Qt encodes the PNG on the shell's GUI thread, which takes about a second for a large selection.
+
 ```bash
 git clone https://github.com/pcmid/dms-screenshot-plus.git \
     ~/.config/DankMaterialShell/plugins/screenshotPlus
@@ -121,5 +123,5 @@ Component errors and `console.warn` output appear in `journalctl --user -u dms`.
 | `lib/Tools.js` | Tool registry: icons, shortcuts, interaction kinds, size presets |
 | `lib/Renderer.js`, `lib/Hit.js` | Drawing and hit-testing of strokes |
 | `lib/Config.js` | Setting defaults |
-| `lib/finalize.sh` | Post-export: save, notify, clean up |
+| `lib/finalize.sh` | Post-export: convert to PNG, save, notify |
 | `translations/<locale>.json` | UI strings; add a file to add a language |

@@ -80,6 +80,12 @@ PluginComponent {
 
     readonly property string _finalizeScript: Qt.resolvedUrl("lib/finalize.sh").toString().replace(/^file:\/\//, "")
 
+    // Qt encodes PNG on the GUI thread and takes about a second for a large
+    // selection. With ffmpeg or ImageMagick installed the overlay writes an
+    // uncompressed PPM instead and finalize.sh converts it in the background.
+    property string _encoder: ""
+    readonly property string exportFormat: _encoder !== "" ? "ppm" : "png"
+
     // ── Session ──────────────────────────────────────────────────────────────
 
     function capture() {
@@ -286,24 +292,33 @@ PluginComponent {
     // ── Export result ────────────────────────────────────────────────────────
 
     // Called by the overlay once the selection has been written to `path`.
+    // The session ends right away; conversion, saving and the notification
+    // happen in finalize.sh, and the clipboard is filled when it is done.
     function onExported(path) {
         const intent = root.exportIntent
         const copy = intent === "copy" || (intent === "default" && root.copyToClipboard)
         const save = intent === "save" || (intent === "default" && root.saveToFile)
-
-        if (copy) {
-            DMSService.sendRequest("clipboard.copyFile", { "filePath": path }, resp => {
-                if (resp && resp.error)
-                    console.warn("screenshotPlus: clipboard:", resp.error)
-            })
-        }
-
         const body = !root.notify ? ""
-                   : save ? I18n.trFor("screenshotPlus", copy ? "Saved and copied to clipboard" : "Saved")
+                   : save ? (copy ? I18n.trFor("screenshotPlus", "Saved and copied to clipboard") : I18n.trFor("screenshotPlus", "Saved"))
                    : copy ? I18n.trFor("screenshotPlus", "Copied to clipboard") : ""
-        Quickshell.execDetached(["sh", root._finalizeScript, path, save ? "1" : "", save ? root._saveDir() : "",
-                                 body, I18n.trFor("screenshotPlus", "Could not save to")])
+        const args = [path, save ? "1" : "", save ? root._saveDir() : "", body,
+                      I18n.trFor("screenshotPlus", "Could not save to"), root._encoder]
         root._endSession()
+        Proc.runCommand("screenshotPlus.finalize", ["sh", root._finalizeScript, ...args], (stdout, code) => {
+            const png = String(stdout).trim().split("\n").pop()
+            if (code !== 0 || !png) {
+                console.warn("screenshotPlus: finalize failed:", code, String(stdout).trim().slice(0, 200))
+                return
+            }
+            // The clipboard and the notification daemon read the file asynchronously.
+            Quickshell.execDetached(["sh", "-c", 'sleep 10; rm -f -- "$1"', "sh", png])
+            if (copy) {
+                DMSService.sendRequest("clipboard.copyFile", { "filePath": png }, resp => {
+                    if (resp && resp.error)
+                        console.warn("screenshotPlus: clipboard:", resp.error)
+                })
+            }
+        }, 0, 30000)
     }
 
     // "" when unset: the script falls back to <Pictures>/Screenshots.
@@ -336,6 +351,12 @@ PluginComponent {
 
     CaptureOverlay {
         ctl: root
+    }
+
+    Component.onCompleted: {
+        Proc.runCommand("screenshotPlus.encoder",
+                        ["sh", "-c", "command -v ffmpeg >/dev/null && echo ffmpeg || { command -v magick >/dev/null && echo magick; }"],
+                        (out, code) => { root._encoder = code === 0 ? String(out).trim() : "" }, 0, 5000)
     }
 
     Component.onDestruction: {

@@ -562,10 +562,11 @@ Variants {
             const d = modelData.devicePixelRatio || 1
             const w = Math.max(1, Math.round(win.selLW * win.outScale / d))
             const h = Math.max(1, Math.round(win.selLH * win.outScale / d))
-            const path = "/tmp/screenshot-plus-" + Date.now() + ".png"
+            const path = "/tmp/screenshot-plus-" + Date.now() + "." + root.ctl.exportFormat
 
             const ok = annot.exportItem.grabToImage(result => {
-                if (result.saveToFile(path)) {
+                const saved = result.saveToFile(path)
+                if (saved) {
                     root.ctl.onExported(path)
                 } else {
                     console.warn("screenshotPlus: could not write", path)
