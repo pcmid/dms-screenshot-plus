@@ -44,6 +44,13 @@ Item {
     // The text being typed: { x, y, id (-1 for new), fontSize }
     property var textSession: null
 
+    // Dirty-region bookkeeping. Repainting a whole 4K canvas per mouse move
+    // (and uploading its 33MB texture) is what dropped frames; tiles let us
+    // upload only what changed.
+    readonly property size tile: Qt.size(256, 256)
+    property var _lastActiveBounds: null
+    property var _lastStrokes: []
+
     // Measured once: how far the TextEdit's first glyph row sits below its
     // top edge compared to Canvas' "top" baseline. Adjusted after eyeballing.
     readonly property real textYNudge: 0
@@ -54,11 +61,42 @@ Item {
 
     // ── Drawing API ──────────────────────────────────────────────────────────
 
+    // What activeCanvas currently shows, as a stroke (or null).
+    function _previewStroke() {
+        if (dragId >= 0 && dragStroke)
+            return Hit.translate(dragStroke, moveDx, moveDy)
+        if (activePoints.length > 0 && activeTool !== "mosaic")
+            return { "id": ctl.nextStrokeId, "tool": activeTool, "color": String(ctl.strokeColor),
+                     "width": ctl.currentWidth, "points": activePoints }
+        return null
+    }
+
+    // Repaint only the union of where the preview was and where it is now.
+    function _markActiveDirty() {
+        const s = _previewStroke()
+        const b = s ? Hit.bounds(s) : null
+        let u = b
+        if (_lastActiveBounds) {
+            const o = _lastActiveBounds
+            u = b ? { "x": Math.min(b.x, o.x), "y": Math.min(b.y, o.y),
+                      "w": Math.max(b.x + b.w, o.x + o.w) - Math.min(b.x, o.x),
+                      "h": Math.max(b.y + b.h, o.y + o.h) - Math.min(b.y, o.y) } : o
+        }
+        _lastActiveBounds = b
+        if (!u)
+            return
+        const pad = 6
+        activeCanvas.markDirty(Qt.rect(u.x - overlay.originX - overlay.selLX - pad,
+                                       u.y - overlay.originY - overlay.selLY - pad,
+                                       u.w + pad * 2, u.h + pad * 2))
+    }
+
     function beginStroke(gx, gy) {
         activeTool = ctl.activeTool
         const p = { "x": gx, "y": gy }
         activePoints = Tools.kindOf(activeTool) === "drag" ? [p, p] : [p]
-        activeCanvas.requestPaint()
+        _lastActiveBounds = null
+        _markActiveDirty()
     }
 
     function updateStroke(gx, gy) {
@@ -71,7 +109,7 @@ Item {
         else
             pts.push(p)
         activePoints = pts
-        activeCanvas.requestPaint()
+        _markActiveDirty()
     }
 
     function endStroke() {
@@ -79,6 +117,7 @@ Item {
         const tool = activeTool
         activePoints = []
         activeTool = ""
+        _lastActiveBounds = null
         activeCanvas.requestPaint()
         if (pts.length === 0)
             return
@@ -108,7 +147,8 @@ Item {
         moveDx = 0
         moveDy = 0
         dragId = stroke.id
-        activeCanvas.requestPaint()
+        _lastActiveBounds = null
+        _markActiveDirty()
     }
 
     function updateMove(gx, gy) {
@@ -116,7 +156,7 @@ Item {
             return
         moveDx = gx - dragX0
         moveDy = gy - dragY0
-        activeCanvas.requestPaint()
+        _markActiveDirty()
     }
 
     function endMove() {
@@ -127,6 +167,7 @@ Item {
         dragStroke = null
         moveDx = 0
         moveDy = 0
+        _lastActiveBounds = null
         activeCanvas.requestPaint()
         if (dx !== 0 || dy !== 0)
             ctl.replaceStroke(id, Hit.translate(s, dx, dy))
@@ -281,6 +322,7 @@ Item {
             width: overlay.width
             height: overlay.height
             renderStrategy: Canvas.Cooperative
+            tileSize: annot.tile
 
             onPaint: {
                 const ctx = getContext("2d")
@@ -295,19 +337,37 @@ Item {
 
             Connections {
                 target: ctl
-                function onStrokesChanged() { bakedCanvas.requestPaint() }
+                function onStrokesChanged() {
+                    // The common case — one stroke appended — only dirties its
+                    // own tiles. Anything else (undo, delete, move) repaints all.
+                    const prev = annot._lastStrokes, next = ctl.strokes
+                    annot._lastStrokes = next
+                    let appended = next.length === prev.length + 1
+                    for (let i = 0; appended && i < prev.length; i++)
+                        appended = next[i] === prev[i]
+                    if (appended) {
+                        const b = Hit.bounds(next[next.length - 1])
+                        if (b) {
+                            const pad = 6
+                            bakedCanvas.markDirty(Qt.rect(b.x - overlay.originX - pad, b.y - overlay.originY - pad,
+                                                          b.w + pad * 2, b.h + pad * 2))
+                            return
+                        }
+                    }
+                    bakedCanvas.requestPaint()
+                }
             }
         }
 
         // The stroke being drawn, or the one being dragged — the only thing
         // that repaints per mouse move.
+        // Sized to the selection, not the screen, and repainted through
+        // markDirty(): this is the per-mouse-move hot path.
         Canvas {
             id: activeCanvas
-            x: -overlay.selLX
-            y: -overlay.selLY
-            width: overlay.width
-            height: overlay.height
+            anchors.fill: parent
             renderStrategy: Canvas.Cooperative
+            tileSize: annot.tile
             visible: annot.activePoints.length > 0 || annot.dragId >= 0
 
             onPaint: {
@@ -315,18 +375,14 @@ Item {
                 ctx.reset()
                 if (!ctl)
                     return
-                const cfg = { "offsetX": -overlay.originX, "offsetY": -overlay.originY,
+                const s = annot._previewStroke()
+                if (!s)
+                    return
+                const cfg = { "offsetX": -overlay.originX - overlay.selLX, "offsetY": -overlay.originY - overlay.selLY,
                               "numberIndex": Renderer.numbering(ctl.strokes), "fontFamily": Theme.fontFamily }
-                if (annot.dragId >= 0 && annot.dragStroke) {
-                    Renderer.drawStroke(ctx, Hit.translate(annot.dragStroke, annot.moveDx, annot.moveDy), cfg)
-                } else if (annot.activePoints.length > 0 && annot.activeTool !== "mosaic") {
-                    // A number being placed gets the index it will receive.
-                    const preview = { "id": ctl.nextStrokeId, "tool": annot.activeTool,
-                                      "color": String(ctl.strokeColor), "width": ctl.currentWidth,
-                                      "points": annot.activePoints }
-                    cfg.numberIndex[preview.id] = Object.keys(cfg.numberIndex).length + 1
-                    Renderer.drawStroke(ctx, preview, cfg)
-                }
+                if (annot.dragId < 0)
+                    cfg.numberIndex[s.id] = Object.keys(cfg.numberIndex).length + 1 // the number it will get
+                Renderer.drawStroke(ctx, s, cfg)
             }
         }
     }
