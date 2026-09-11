@@ -4,72 +4,70 @@ import "lib/Renderer.js" as Renderer
 import "lib/Hit.js" as Hit
 import "lib/Tools.js" as Tools
 
-// Everything that is drawn on top of the frozen frame, for one screen.
+// Everything drawn on top of the frozen frame, for one screen.
 //
 //   exportRoot        the subtree that becomes the exported image: a copy of
-//                     the frame, the mosaic layers, the committed strokes and
-//                     the stroke being drawn or dragged
-//   selectionOutline  dashed frame around the selected stroke — a SIBLING of
+//                     the frame, the mosaics, the committed strokes and the
+//                     stroke being drawn or dragged
+//   selectionOutline  dashed frame around the selected stroke; a sibling of
 //                     exportRoot so it is never exported
-//   textEditor        the TextEdit used while typing — also a sibling
+//   textEditor        the TextEdit used while typing; also a sibling
 //
-// All public functions take GLOBAL LOGICAL coordinates.
+// Public functions take global logical coordinates.
 Item {
     id: annot
 
-    property var overlay: null        // the PanelWindow (coordinates, selection)
-    property var ctl: null        // the daemon (strokes, tool, colour)
-    property var frameItem: null  // ScreencopyView or Image holding the frame
+    property var overlay: null      // the PanelWindow: coordinates and selection
+    property var ctl: null          // the daemon: strokes, tool, color
+    property var frameItem: null    // ScreencopyView or Image holding the frame
 
     readonly property alias exportItem: exportRoot
     readonly property bool editingText: textSession !== null
-    // Stroke temporarily hidden from bakedCanvas: being dragged or edited.
-    readonly property int hiddenId: dragId >= 0 ? dragId
-                                  : (textSession && textSession.id >= 0 ? textSession.id : -1)
+    // Hidden from bakedCanvas while it is dragged or edited.
+    readonly property int hiddenId: dragId >= 0 ? dragId : (textSession ? textSession.id : -1)
 
-    // ── Transient state (never enters the undo history) ──────────────────────
+    // Font for the Canvas (text tool, number labels) and for the TextEdit, so
+    // what is typed is what gets painted. Canvas goes through QPainter's
+    // outline rasterizer, which breaks glyphs with overlapping contours in
+    // variable fonts (DMS's default Inter Variable renders a broken "4").
+    readonly property string canvasFont: /variable/i.test(Theme.fontFamily) ? "sans-serif" : Theme.fontFamily
 
-    // The stroke being drawn.
-    property string activeTool: ""
+    // ── Transient state, never part of the undo history ──────────────────────
+
+    property string activeTool: ""     // stroke being drawn
     property var activePoints: []
 
-    // The stroke being dragged (select tool).
-    property int dragId: -1
+    property int dragId: -1            // stroke being moved with the select tool
     property var dragStroke: null
     property real dragX0: 0
     property real dragY0: 0
     property real moveDx: 0
     property real moveDy: 0
 
-    // The text being typed: { x, y, id (-1 for new), fontSize }
-    property var textSession: null
+    property var textSession: null     // { x, y, id (-1 for new), fontSize }
 
-    // Dirty-region bookkeeping. Repainting a whole 4K canvas per mouse move
-    // (and uploading its 33MB texture) is what dropped frames; tiles let us
-    // upload only what changed.
+    // Canvases repaint by tile; only the tiles under the preview are marked
+    // dirty per mouse move. Repainting a whole 4K canvas dropped frames.
     readonly property size tile: Qt.size(256, 256)
     property var _lastActiveBounds: null
     property var _lastStrokes: []
 
-    // Measured once: how far the TextEdit's first glyph row sits below its
-    // top edge compared to Canvas' "top" baseline. Adjusted after eyeballing.
-    readonly property real textYNudge: 0
-
-    // Font for everything the Canvas draws (text tool, number labels) and for
-    // the TextEdit, so what you type is what gets painted. Canvas goes through
-    // QPainter's outline rasteriser, which mangles glyphs with overlapping
-    // contours in variable fonts — DMS's default "Inter Variable" renders a
-    // broken "4" — while Qt Quick's own text path is fine. Fall back to the
-    // system sans in that case.
-    readonly property string canvasFont: /variable/i.test(Theme.fontFamily) ? "sans-serif" : Theme.fontFamily
+    readonly property var mosaics: ctl ? ctl.strokes.filter(s => s.tool === "mosaic") : []
+    readonly property var selectedStroke: {
+        if (!ctl || ctl.selectedId < 0)
+            return null
+        const i = Hit.indexOfId(ctl.strokes, ctl.selectedId)
+        return i === -1 ? null : ctl.strokes[i]
+    }
+    readonly property var selectedBounds: selectedStroke ? Hit.bounds(selectedStroke) : null
 
     anchors.fill: parent
 
     onHiddenIdChanged: bakedCanvas.requestPaint()
 
-    // ── Drawing API ──────────────────────────────────────────────────────────
+    // ── Drawing ──────────────────────────────────────────────────────────────
 
-    // What activeCanvas currently shows, as a stroke (or null).
+    // What activeCanvas shows right now, as a stroke, or null.
     function _previewStroke() {
         if (dragId >= 0 && dragStroke)
             return Hit.translate(dragStroke, moveDx, moveDy)
@@ -79,7 +77,7 @@ Item {
         return null
     }
 
-    // Repaint only the union of where the preview was and where it is now.
+    // Mark the union of the preview's previous and current bounds dirty.
     function _markActiveDirty() {
         const s = _previewStroke()
         const b = s ? Hit.bounds(s) : null
@@ -132,17 +130,12 @@ Item {
         if (Tools.kindOf(tool) === "drag") {
             const dx = pts[1].x - pts[0].x, dy = pts[1].y - pts[0].y
             if (dx * dx + dy * dy < 4)
-                return // a click, not a drag
+                return   // a click, not a drag
         }
-        ctl.pushStroke({
-            "tool": tool,
-            "color": String(ctl.strokeColor),
-            "width": ctl.currentWidth,
-            "points": pts
-        })
+        ctl.pushStroke({ "tool": tool, "color": String(ctl.strokeColor), "width": ctl.currentWidth, "points": pts })
     }
 
-    // ── Move API (select tool) ───────────────────────────────────────────────
+    // ── Moving (select tool) ─────────────────────────────────────────────────
 
     function hitAt(gx, gy) {
         return Hit.strokeAt(ctl.strokes, gx, gy, 6)
@@ -181,7 +174,7 @@ Item {
             ctl.replaceStroke(id, Hit.translate(s, dx, dy))
     }
 
-    // ── Text API ─────────────────────────────────────────────────────────────
+    // ── Text ─────────────────────────────────────────────────────────────────
 
     function beginTextEdit(gx, gy, existing) {
         if (textSession)
@@ -195,7 +188,6 @@ Item {
         textEdit.text = existing ? existing.text : ""
         if (existing)
             ctl.strokeColor = existing.color
-        ctl.textEditing = true
         textEdit.cursorPosition = textEdit.length
         textEdit.forceActiveFocus()
     }
@@ -205,7 +197,6 @@ Item {
         if (!s)
             return
         const text = textEdit.text
-        const lines = Math.max(1, textEdit.lineCount)
         const stroke = {
             "tool": "text",
             "color": String(ctl.strokeColor),
@@ -214,47 +205,33 @@ Item {
             "text": text,
             "w": Math.ceil(textEdit.contentWidth),
             "h": Math.ceil(textEdit.contentHeight),
-            "lineHeight": textEdit.contentHeight / lines,
+            "lineHeight": textEdit.contentHeight / Math.max(1, textEdit.lineCount),
             "font": textEdit.font.family
         }
         _endTextSession()
         if (text.trim() === "") {
             if (s.id >= 0)
                 ctl.deleteStroke(s.id)
-            return
-        }
-        if (s.id >= 0)
+        } else if (s.id >= 0) {
             ctl.replaceStroke(s.id, stroke)
-        else
+        } else {
             ctl.pushStroke(stroke)
+        }
     }
 
     function cancelTextEdit() {
-        if (!textSession)
-            return
-        _endTextSession()
+        if (textSession)
+            _endTextSession()
     }
 
     function _endTextSession() {
         textSession = null
         textEdit.text = ""
-        ctl.textEditing = false
         if (overlay && overlay.keyHandler)
             overlay.keyHandler.forceActiveFocus()
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    readonly property var mosaics: ctl ? ctl.strokes.filter(s => s.tool === "mosaic") : []
-    readonly property var selectedStroke: {
-        if (!ctl || ctl.selectedId < 0)
-            return null
-        const i = Hit.indexOfId(ctl.strokes, ctl.selectedId)
-        return i === -1 ? null : ctl.strokes[i]
-    }
-    readonly property var selectedBounds: selectedStroke ? Hit.bounds(selectedStroke) : null
-
-    // ── exportRoot: what gets exported ───────────────────────────────────────
+    // ── exportRoot ───────────────────────────────────────────────────────────
 
     Item {
         id: exportRoot
@@ -266,10 +243,9 @@ Item {
         clip: true
         visible: overlay.hasSel && overlay.frameReady
 
-        // Frame copy, re-using whichever item already holds the texture — no
-        // second capture and no second PNG decode, whatever the backend.
-        // textureSize pins the copy to source pixels so the grab samples at
-        // full resolution rather than at the on-screen size.
+        // Frame copy, reusing the texture the frame item already holds.
+        // textureSize pins it to source pixels so the grab samples at full
+        // resolution rather than at the on-screen size.
         ShaderEffectSource {
             anchors.fill: parent
             sourceItem: annot.frameItem
@@ -280,8 +256,8 @@ Item {
             recursive: false
         }
 
-        // Mosaic: a tiny re-render of the frame region, then nearest-neighbour
-        // upscaling. Works with both backends and needs no pixel access.
+        // Mosaic: the frame region rendered at (size / block) pixels, then
+        // scaled up without smoothing. Works with either backend.
         Repeater {
             model: annot.mosaics
             delegate: ShaderEffectSource {
@@ -302,7 +278,7 @@ Item {
             }
         }
 
-        // Live preview while dragging out a mosaic.
+        // Preview while dragging out a mosaic.
         ShaderEffectSource {
             readonly property bool on: annot.activeTool === "mosaic" && annot.activePoints.length >= 2
             readonly property var r: on ? Hit.rectOf({ "points": annot.activePoints }) : ({ "x": 0, "y": 0, "w": 0, "h": 0 })
@@ -321,8 +297,8 @@ Item {
             recursive: false
         }
 
-        // Committed strokes. Full-screen sized but positioned relative to the
-        // clip item, so stroke coordinates stay independent of the selection.
+        // Committed strokes. Screen-sized but positioned relative to the clip
+        // item, so stroke coordinates do not depend on the selection.
         Canvas {
             id: bakedCanvas
             x: -overlay.selLX
@@ -346,31 +322,27 @@ Item {
             Connections {
                 target: ctl
                 function onStrokesChanged() {
-                    // The common case — one stroke appended — only dirties its
-                    // own tiles. Anything else (undo, delete, move) repaints all.
+                    // Appending one stroke only dirties its own tiles; undo,
+                    // delete and move repaint everything.
                     const prev = annot._lastStrokes, next = ctl.strokes
                     annot._lastStrokes = next
                     let appended = next.length === prev.length + 1
                     for (let i = 0; appended && i < prev.length; i++)
                         appended = next[i] === prev[i]
-                    if (appended) {
-                        const b = Hit.bounds(next[next.length - 1])
-                        if (b) {
-                            const pad = 6
-                            bakedCanvas.markDirty(Qt.rect(b.x - overlay.originX - pad, b.y - overlay.originY - pad,
-                                                          b.w + pad * 2, b.h + pad * 2))
-                            return
-                        }
+                    const b = appended ? Hit.bounds(next[next.length - 1]) : null
+                    if (!b) {
+                        bakedCanvas.requestPaint()
+                        return
                     }
-                    bakedCanvas.requestPaint()
+                    const pad = 6
+                    bakedCanvas.markDirty(Qt.rect(b.x - overlay.originX - pad, b.y - overlay.originY - pad,
+                                                  b.w + pad * 2, b.h + pad * 2))
                 }
             }
         }
 
-        // The stroke being drawn, or the one being dragged — the only thing
-        // that repaints per mouse move.
-        // Sized to the selection, not the screen, and repainted through
-        // markDirty(): this is the per-mouse-move hot path.
+        // The stroke being drawn or dragged: the only thing repainted per
+        // mouse move.
         Canvas {
             id: activeCanvas
             anchors.fill: parent
@@ -381,21 +353,19 @@ Item {
             onPaint: {
                 const ctx = getContext("2d")
                 ctx.reset()
-                if (!ctl)
-                    return
-                const s = annot._previewStroke()
+                const s = ctl ? annot._previewStroke() : null
                 if (!s)
                     return
                 const cfg = { "offsetX": -overlay.originX - overlay.selLX, "offsetY": -overlay.originY - overlay.selLY,
                               "numberIndex": Renderer.numbering(ctl.strokes), "fontFamily": annot.canvasFont }
                 if (annot.dragId < 0)
-                    cfg.numberIndex[s.id] = Object.keys(cfg.numberIndex).length + 1 // the number it will get
+                    cfg.numberIndex[s.id] = Object.keys(cfg.numberIndex).length + 1   // the number it will get
                 Renderer.drawStroke(ctx, s, cfg)
             }
         }
     }
 
-    // ── Selection outline (never exported) ───────────────────────────────────
+    // ── Selection outline, never exported ────────────────────────────────────
 
     Canvas {
         id: selectionOutline
@@ -422,14 +392,14 @@ Item {
         }
     }
 
-    // ── Text editor (never exported) ─────────────────────────────────────────
+    // ── Text editor, never exported ──────────────────────────────────────────
 
     Item {
         id: textEditor
         readonly property int pad: 4
         visible: annot.textSession !== null
         x: annot.textSession ? overlay.toLocalX(annot.textSession.x) - pad : 0
-        y: annot.textSession ? overlay.toLocalY(annot.textSession.y) - pad + annot.textYNudge : 0
+        y: annot.textSession ? overlay.toLocalY(annot.textSession.y) - pad : 0
         width: textEdit.contentWidth + pad * 2 + 4
         height: textEdit.contentHeight + pad * 2
 
@@ -462,16 +432,15 @@ Item {
                     event.accepted = true
                     return
                 }
+                // Enter commits; Shift+Enter falls through and inserts a newline.
                 if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
                         && !(event.modifiers & Qt.ShiftModifier)) {
-                    // Let the input method finish composing before we commit,
-                    // or a half-typed CJK candidate is lost.
+                    // Let the input method finish composing before committing.
                     if (inputMethodComposing)
                         Qt.inputMethod.commit()
                     Qt.callLater(annot.commitTextEdit)
                     event.accepted = true
                 }
-                // Shift+Enter falls through: TextEdit inserts a newline.
             }
         }
     }

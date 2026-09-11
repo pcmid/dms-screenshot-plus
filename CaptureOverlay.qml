@@ -5,10 +5,9 @@ import qs.Common
 import qs.Services
 import "lib/Tools.js" as Tools
 
-// One fullscreen layer-shell window per monitor. Everything lives in the same
-// QML scene, which is the whole point: the toolbar and the annotations are
-// bound to the selection rectangle, so dragging the selection moves them for
-// free — no synchronisation code anywhere.
+// One fullscreen layer-shell window per screen. The toolbar and the
+// annotations live in the same scene as the selection rectangle and are
+// bound to it, so dragging the selection moves them without any extra code.
 Variants {
     id: root
 
@@ -28,8 +27,8 @@ Variants {
         WlrLayershell.namespace: "dms:screenshot-plus"
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.exclusiveZone: -1
-        // Exclusive so Esc/Enter/Ctrl+Z/tool keys reach us; released while the
-        // colour picker (a separate window) needs to be typed into.
+        // Exclusive so shortcuts reach us; released while the color picker
+        // (a separate window) is open.
         WlrLayershell.keyboardFocus: (root.ctl && root.ctl.pickerOpen) ? WlrKeyboardFocus.None : WlrKeyboardFocus.Exclusive
 
         anchors {
@@ -39,7 +38,7 @@ Variants {
             bottom: true
         }
 
-        // ── Coordinate mapping ───────────────────────────────────────────────
+        // ── Coordinates ──────────────────────────────────────────────────────
         // Global logical -> this screen's local logical is a subtraction.
 
         readonly property string screenName: modelData.name
@@ -47,20 +46,15 @@ Variants {
         readonly property real originX: info ? info.x : modelData.x
         readonly property real originY: info ? info.y : modelData.y
         readonly property real outScale: info ? info.scale : 1
-        readonly property string freezePath: (root.ctl && root.ctl.freezes[screenName]) || ""
-        readonly property string freezeUrl: freezePath ? "file://" + freezePath : ""
-
+        readonly property string freezeUrl: (root.ctl && root.ctl.freezes[screenName]) ? "file://" + root.ctl.freezes[screenName] : ""
         readonly property bool useScreencopy: root.ctl && root.ctl.backend === "screencopy"
 
-        // Two distinct milestones:
-        //   dimmable   — the grab has RETURNED, so painting the dimmer can no
-        //                longer contaminate it. The live desktop underneath is
-        //                the same picture, so dimming now is seamless.
-        //   frameReady — the frame is decoded and on screen. Export waits for it.
+        // dimmable: the grab has returned, so painting can no longer leak into
+        // it. The live desktop underneath is the same picture as the frozen
+        // frame, so dimming before the frame is decoded looks seamless.
+        // frameReady: the frame is on screen. Export waits for it.
         readonly property bool dimmable: root.ctl && !root.ctl.capturing
-        readonly property bool frameReady: useScreencopy
-                                          ? frozen.hasContent
-                                          : (win.freezeUrl !== "" && freezeImage.status === Image.Ready)
+        readonly property bool frameReady: useScreencopy ? frozen.hasContent : freezeImage.status === Image.Ready
 
         onFrameReadyChanged: {
             if (frameReady && root.ctl)
@@ -72,16 +66,15 @@ Variants {
         function toLocalX(gx) { return gx - originX }
         function toLocalY(gy) { return gy - originY }
 
-        // Selection in this screen's local coords, for drawing.
+        readonly property bool hasSel: root.ctl ? root.ctl.hasSelection : false
         readonly property real selLX: root.ctl ? toLocalX(root.ctl.selX) : 0
         readonly property real selLY: root.ctl ? toLocalY(root.ctl.selY) : 0
         readonly property real selLW: root.ctl ? root.ctl.selW : 0
         readonly property real selLH: root.ctl ? root.ctl.selH : 0
-        readonly property bool hasSel: root.ctl ? root.ctl.hasSelection : false
 
-        // The screen containing the selection centre owns keyboard actions and export.
+        // The screen containing the selection center handles keys and export.
         readonly property bool ownsSelection: {
-            if (!root.ctl || !root.ctl.hasSelection)
+            if (!hasSel)
                 return true
             const cx = root.ctl.selX + root.ctl.selW / 2
             const cy = root.ctl.selY + root.ctl.selH / 2
@@ -104,22 +97,17 @@ Variants {
         readonly property int minSel: 8
         readonly property string toolKind: root.ctl ? Tools.kindOf(root.ctl.activeTool) : ""
 
-        function snapshotSel() {
-            return { "x": root.ctl.selX, "y": root.ctl.selY, "w": root.ctl.selW, "h": root.ctl.selH }
+        function beginDrag(gx, gy) {
+            dragGX = gx
+            dragGY = gy
+            origSel = { "x": root.ctl.selX, "y": root.ctl.selY, "w": root.ctl.selW, "h": root.ctl.selH }
         }
 
-        function clampToLayout(gx, gy) {
-            // Single screen for now: clamp to this screen's bounds.
+        function clampToScreen(gx, gy) {
             return {
                 "x": Math.max(originX, Math.min(originX + modelData.width, gx)),
                 "y": Math.max(originY, Math.min(originY + modelData.height, gy))
             }
-        }
-
-        function beginDrag(gx, gy) {
-            dragGX = gx
-            dragGY = gy
-            origSel = snapshotSel()
         }
 
         function insideSel(gx, gy) {
@@ -130,8 +118,6 @@ Variants {
 
         function applyResize(gx, gy) {
             const o = origSel
-            if (!o)
-                return
             let l = o.x, t = o.y, r = o.x + o.w, b = o.y + o.h
             if (resizeHandle.indexOf("l") !== -1) l = gx
             if (resizeHandle.indexOf("r") !== -1) r = gx
@@ -140,7 +126,7 @@ Variants {
             root.ctl.setSelection(Math.min(l, r), Math.min(t, b), Math.abs(r - l), Math.abs(b - t))
         }
 
-        // Esc / right click: peel one layer of state at a time.
+        // Esc / right click: leave one layer of state at a time.
         function peelBack() {
             if (annot.editingText)
                 annot.cancelTextEdit()
@@ -152,20 +138,18 @@ Variants {
                 root.ctl.cancel()
         }
 
-        // ── Colour picker (a separate DMS window) ────────────────────────────
-        // It lives on the Top layer and gets no keyboard while screenshotActive
-        // is set, so: lift it to Overlay, drop our own grab, and undo both when
-        // it closes. Same dance quickCapture does.
+        // ── Color picker ─────────────────────────────────────────────────────
+        // DMS's picker lives on the Top layer and gets no keyboard while
+        // screenshotActive is set: lift it to Overlay, release our own grab,
+        // and undo both when it closes.
 
         function openPicker() {
             const p = PopoutService.colorPickerModal
-            if (!p) {
-                console.warn("screenshotPlus: colorPickerModal unavailable")
+            if (!p)
                 return
-            }
             p.useOverlayLayer = true
             p.selectedColor = root.ctl.strokeColor
-            p.pickerTitle = "标注颜色"
+            p.pickerTitle = "Annotation color"
             p.onColorSelectedCallback = c => { root.ctl.strokeColor = c }
             root.ctl.pickerOpen = true
             p.show()
@@ -191,8 +175,7 @@ Variants {
             anchors.fill: parent
             visible: win.useScreencopy
             captureSource: (win.useScreencopy && win.visible) ? win.modelData : null
-            // A single frame; staying live would capture our own overlay.
-            live: false
+            live: false          // a single frame; staying live would capture this overlay
             paintCursor: false
         }
 
@@ -204,19 +187,15 @@ Variants {
             fillMode: Image.Stretch
             smooth: true
             cache: false
-            // Decode off the UI thread: the dimmer is already up, so nothing
-            // flashes, and a 4K PNG blocks the render thread ~170ms otherwise.
-            asynchronous: true
+            asynchronous: true   // a 4K PNG would block the render thread for ~170ms
         }
 
-        // ── Dimming outside the selection (4 rects beats a canvas at 4K) ─────
+        // ── Dimming outside the selection ────────────────────────────────────
 
         Item {
             anchors.fill: parent
             visible: win.dimmable
-            // Functional colour, not a theme colour: a screenshot dimmer must be
-            // neutral black regardless of accent or light/dark mode.
-            readonly property color dim: Qt.rgba(0, 0, 0, 0.45)
+            readonly property color dim: Qt.rgba(0, 0, 0, 0.45)   // neutral regardless of theme
 
             Rectangle { color: parent.dim; x: 0; y: 0; width: parent.width
                         height: win.hasSel ? Math.max(0, win.selLY) : parent.height }
@@ -228,8 +207,6 @@ Variants {
                         width: Math.max(0, parent.width - (win.selLX + win.selLW)); height: win.selLH }
         }
 
-        // ── Annotations (export subtree + outline + text editor) ─────────────
-
         AnnotationLayer {
             id: annot
             overlay: win
@@ -237,7 +214,7 @@ Variants {
             frameItem: win.useScreencopy ? frozen : freezeImage
         }
 
-        // ── Selection border + size readout ──────────────────────────────────
+        // ── Selection border and size readout ────────────────────────────────
 
         Rectangle {
             visible: win.hasSel && win.dimmable
@@ -251,7 +228,7 @@ Variants {
         }
 
         Rectangle {
-            visible: win.hasSel && win.dimmable && win.selLW > 0
+            visible: win.hasSel && win.dimmable
             color: Theme.withAlpha(Theme.surfaceContainer, 0.9)
             radius: Theme.cornerRadiusSmall
             border.color: Theme.withAlpha(Theme.outline, 0.3)
@@ -272,12 +249,11 @@ Variants {
             }
         }
 
-        // ── Main pointer handling ────────────────────────────────────────────
+        // ── Pointer ──────────────────────────────────────────────────────────
 
         MouseArea {
             id: mainArea
             anchors.fill: parent
-            // Live before the frame arrives: dragging out a selection never waits.
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: true
             cursorShape: {
@@ -285,12 +261,11 @@ Variants {
                     return Qt.ClosedHandCursor
                 if (win.mode === "dragStroke")
                     return Qt.SizeAllCursor
-                if (win.hasSel && win.insideSel(win.toGlobalX(mouseX), win.toGlobalY(mouseY))) {
+                if (win.insideSel(win.toGlobalX(mouseX), win.toGlobalY(mouseY))) {
                     switch (win.toolKind) {
                     case "select": return Qt.ArrowCursor
                     case "text": return Qt.IBeamCursor
                     case "": return Qt.OpenHandCursor
-                    default: return Qt.CrossCursor
                     }
                 }
                 return Qt.CrossCursor
@@ -315,14 +290,13 @@ Variants {
                     annot.commitTextEdit()
 
                 if (kind === "" || !inside) {
+                    win.beginDrag(gx, gy)
                     if (inside) {
                         win.mode = "moving"
-                        win.beginDrag(gx, gy)
                     } else {
                         root.ctl.select(-1)
-                        win.mode = "creating"
-                        win.beginDrag(gx, gy)
                         root.ctl.setSelection(gx, gy, 0, 0)
+                        win.mode = "creating"
                     }
                     return
                 }
@@ -367,7 +341,7 @@ Variants {
             onPositionChanged: mouse => {
                 if (win.mode === "idle")
                     return
-                const c = win.clampToLayout(win.toGlobalX(mouse.x), win.toGlobalY(mouse.y))
+                const c = win.clampToScreen(win.toGlobalX(mouse.x), win.toGlobalY(mouse.y))
                 switch (win.mode) {
                 case "creating":
                     root.ctl.setSelection(Math.min(win.dragGX, c.x), Math.min(win.dragGY, c.y),
@@ -399,7 +373,7 @@ Variants {
                     break
                 case "creating":
                     if (root.ctl.selW < win.minSel && root.ctl.selH < win.minSel)
-                        root.ctl.setSelection(0, 0, 0, 0) // a click, not a drag
+                        root.ctl.setSelection(0, 0, 0, 0)   // a click, not a drag
                     break
                 }
                 win.mode = "idle"
@@ -454,7 +428,7 @@ Variants {
                         if (win.mode !== "resizing")
                             return
                         const p = mapToItem(null, mouse.x, mouse.y)
-                        const c = win.clampToLayout(win.toGlobalX(p.x), win.toGlobalY(p.y))
+                        const c = win.clampToScreen(win.toGlobalX(p.x), win.toGlobalY(p.y))
                         win.applyResize(c.x, c.y)
                     }
                     onReleased: {
@@ -466,8 +440,8 @@ Variants {
         }
 
         // ── Toolbar ──────────────────────────────────────────────────────────
-        // A Loader so that hiding the selection also destroys the buttons'
-        // tooltip Popups, which are parented to the window, not to the bar.
+        // A Loader, so hiding the selection also destroys the buttons' tooltip
+        // popups, which are parented to the window rather than to the bar.
 
         Loader {
             id: toolbarLoader
@@ -480,14 +454,12 @@ Variants {
             }
         }
 
-        // ── Hint before a selection exists ───────────────────────────────────
-
         Text {
             visible: !win.hasSel && win.ownsSelection && win.dimmable
             anchors.centerIn: parent
             color: Theme.surfaceText
             font.pixelSize: Theme.fontSizeLarge
-            text: "拖动选择区域  ·  Esc 取消"
+            text: "Drag to select an area  ·  Esc to cancel"
             style: Text.Outline
             styleColor: Qt.rgba(0, 0, 0, 0.6)
         }
@@ -512,7 +484,7 @@ Variants {
                     return
                 case Qt.Key_Return:
                 case Qt.Key_Enter:
-                    root.ctl.finishWith("default")
+                    root.ctl.finish("default")
                     event.accepted = true
                     return
                 case Qt.Key_Delete:
@@ -526,8 +498,8 @@ Variants {
 
                 if (ctrl) {
                     switch (event.key) {
-                    case Qt.Key_C: root.ctl.finishWith("copy"); break
-                    case Qt.Key_S: root.ctl.finishWith("save"); break
+                    case Qt.Key_C: root.ctl.finish("copy"); break
+                    case Qt.Key_S: root.ctl.finish("save"); break
                     case Qt.Key_Z: shift ? root.ctl.redo() : root.ctl.undo(); break
                     case Qt.Key_Y: root.ctl.redo(); break
                     default: return
@@ -539,8 +511,7 @@ Variants {
                 if (event.modifiers & Qt.AltModifier)
                     return
                 if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
-                    const letter = String.fromCharCode(65 + (event.key - Qt.Key_A))
-                    const t = Tools.byKey(letter, root.ctl.enabledTools)
+                    const t = Tools.byKey(String.fromCharCode(65 + (event.key - Qt.Key_A)), root.ctl.enabledTools)
                     if (t) {
                         root.ctl.setTool(t.id)
                         event.accepted = true
@@ -550,19 +521,15 @@ Variants {
         }
 
         // ── Export ───────────────────────────────────────────────────────────
-        // grabToImage renders exportRoot's subtree at the requested pixel size,
-        // so asking for selection × scale samples the frame texture at its
-        // full native resolution. Decorations are siblings and stay out.
+        // grabToImage renders the export subtree at the requested pixel size,
+        // sampling the frame texture at native resolution. Decorations are
+        // siblings of that subtree and stay out of the picture.
 
         function doExport() {
-            if (annot.editingText) {
-                // Commit, then give the canvas a frame to repaint before grabbing.
+            if (annot.editingText)
                 annot.commitTextEdit()
-                exportDelay.restart()
-                return
-            }
             root.ctl.select(-1)
-            exportDelay.restart()
+            exportDelay.restart()   // let the canvases repaint first
         }
 
         Timer {
@@ -572,22 +539,21 @@ Variants {
         }
 
         function grabNow() {
-            const s = win.outScale
-            // grabToImage's targetSize is in LOGICAL units — Qt multiplies it by
-            // the window's devicePixelRatio. outScale and dpr differ under
-            // fractional scaling, so both are needed.
+            // targetSize is in logical units and gets multiplied by the
+            // window's devicePixelRatio, which differs from the output scale
+            // under fractional scaling.
             const d = modelData.devicePixelRatio || 1
-            const w = Math.max(1, Math.round(root.ctl.selW * s / d))
-            const h = Math.max(1, Math.round(root.ctl.selH * s / d))
-            const path = "/tmp/dmsplus_" + Date.now() + ".png"
+            const w = Math.max(1, Math.round(root.ctl.selW * win.outScale / d))
+            const h = Math.max(1, Math.round(root.ctl.selH * win.outScale / d))
+            const path = "/tmp/screenshot-plus-" + Date.now() + ".png"
 
             const ok = annot.exportItem.grabToImage(result => {
-                if (!result.saveToFile(path)) {
-                    console.warn("screenshotPlus: saveToFile failed for", path)
+                if (result.saveToFile(path)) {
+                    root.ctl.onExported(path)
+                } else {
+                    console.warn("screenshotPlus: could not write", path)
                     root.ctl.cancel()
-                    return
                 }
-                root.ctl.onExported(path)
             }, Qt.size(w, h))
 
             if (!ok) {

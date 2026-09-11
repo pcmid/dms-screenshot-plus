@@ -3,131 +3,115 @@ import qs.Common
 import qs.Widgets
 import qs.Modules.Plugins
 import "lib/Config.js" as Config
+import "lib/Tools.js" as Tools
 
-// Settings page (DMS Settings → Plugins → Screenshot+).
-// Defaults come from lib/Config.js so the daemon and this page never disagree.
+// DMS Settings -> Plugins -> Screenshot+. Defaults come from lib/Config.js.
 PluginSettings {
     id: root
     pluginId: "screenshotPlus"
 
-    // ── Tools ────────────────────────────────────────────────────────────────
+    readonly property var toolHints: ({
+        "select": "Click an annotation to select it, drag to move it, Delete to remove it, double-click text to edit it",
+        "highlighter": "Wide translucent stroke",
+        "text": "Enter commits, Shift+Enter inserts a line break, Esc cancels",
+        "number": "Click to place an incrementing marker; removing one renumbers the rest"
+    })
 
-    StyledText {
+    component SectionTitle: StyledText {
         width: parent.width
-        text: "工具栏"
         font.pixelSize: Theme.fontSizeLarge
         font.weight: Font.Bold
         color: Theme.surfaceText
     }
 
-    StyledText {
+    component SectionNote: StyledText {
         width: parent.width
-        text: "关掉的工具不显示在截图工具栏里，快捷键也失效。"
         font.pixelSize: Theme.fontSizeSmall
         color: Theme.surfaceVariantText
         wrapMode: Text.WordWrap
     }
 
-    ToggleSetting { settingKey: Config.toolEnabledKey("select");      label: "选择 (S)";   description: "点选已画的标注，拖动移动，Delete 删除，双击文字编辑"; defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("rect");        label: "矩形 (R)";   defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("ellipse");     label: "椭圆 (E)";   defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("line");        label: "直线 (L)";   defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("arrow");       label: "箭头 (A)";   defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("pen");         label: "画笔 (P)";   defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("highlighter"); label: "荧光笔 (H)"; description: "半透明粗笔，用来标重点"; defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("text");        label: "文字 (T)";   description: "Enter 提交，Shift+Enter 换行，Esc 取消"; defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("mosaic");      label: "马赛克 (M)"; defaultValue: true }
-    ToggleSetting { settingKey: Config.toolEnabledKey("number");      label: "序号 (N)";   description: "点一下放一个自增编号，删掉中间的会自动重排"; defaultValue: true }
+    SectionTitle { text: "Toolbar" }
+    SectionNote { text: "Disabled tools are hidden from the toolbar and lose their shortcut." }
 
-    // ── Defaults ─────────────────────────────────────────────────────────────
-
-    StyledText {
+    Column {
         width: parent.width
-        topPadding: Theme.spacingM
-        text: "默认样式"
-        font.pixelSize: Theme.fontSizeLarge
-        font.weight: Font.Bold
-        color: Theme.surfaceText
+        spacing: Theme.spacingM
+
+        Repeater {
+            model: Tools.TOOLS
+            delegate: ToggleSetting {
+                required property var modelData
+                settingKey: Config.toolEnabledKey(modelData.id)
+                label: modelData.label + " (" + modelData.key + ")"
+                description: root.toolHints[modelData.id] || ""
+                defaultValue: true
+            }
+        }
     }
+
+    SectionTitle { text: "Default style"; topPadding: Theme.spacingM }
 
     ColorSetting {
         settingKey: "defaultColor"
-        label: "默认颜色"
-        description: "每次截图开始时的标注颜色；截图中可在工具栏临时更换"
+        label: "Color"
+        description: "Annotation color at the start of every capture; the toolbar can change it for the session"
         defaultValue: Config.DEFAULTS.defaultColor
     }
 
     SelectionSetting {
         settingKey: "defaultWidthPreset"
-        label: "默认粗细"
-        description: "S / M / L / XL 对每个工具各有一套具体数值（线宽、字号、马赛克块大小、序号半径）"
+        label: "Size"
+        description: "Each tool maps S / M / L / XL to its own values: line width, font size, mosaic block size, marker radius"
         options: [
-            { "label": "S  细", "value": "S" },
-            { "label": "M  中", "value": "M" },
-            { "label": "L  粗", "value": "L" },
-            { "label": "XL 特粗", "value": "XL" }
+            { "label": "S", "value": "S" },
+            { "label": "M", "value": "M" },
+            { "label": "L", "value": "L" },
+            { "label": "XL", "value": "XL" }
         ]
         defaultValue: Config.DEFAULTS.defaultWidthPreset
     }
 
-    // ── Output ───────────────────────────────────────────────────────────────
-
-    StyledText {
-        width: parent.width
-        topPadding: Theme.spacingM
-        text: "输出"
-        font.pixelSize: Theme.fontSizeLarge
-        font.weight: Font.Bold
-        color: Theme.surfaceText
-    }
+    SectionTitle { text: "Output"; topPadding: Theme.spacingM }
 
     ToggleSetting {
         settingKey: "copyToClipboard"
-        label: "复制到剪贴板"
-        description: "Enter / ✓ 时复制。工具栏的「复制」按钮不受此项影响"
+        label: "Copy to clipboard"
+        description: "On Enter. The toolbar's copy button always copies"
         defaultValue: Config.DEFAULTS.copyToClipboard
     }
 
     ToggleSetting {
         settingKey: "saveToFile"
-        label: "保存到文件"
-        description: "Enter / ✓ 时同时落盘。工具栏的「保存」按钮（Ctrl+S）不受此项影响"
+        label: "Save to file"
+        description: "On Enter. The toolbar's save button (Ctrl+S) always saves"
         defaultValue: Config.DEFAULTS.saveToFile
     }
 
     StringSetting {
         settingKey: "saveDirectory"
-        label: "保存目录"
-        description: "留空 = 系统图片目录下的 Screenshots"
+        label: "Save directory"
+        description: "Empty for the Screenshots folder inside your Pictures directory"
         placeholder: "~/Pictures/Screenshots"
         defaultValue: Config.DEFAULTS.saveDirectory
     }
 
     ToggleSetting {
         settingKey: "notify"
-        label: "完成后通知"
-        description: "保存到文件时通知里带「打开 / 打开目录」按钮"
+        label: "Notify when done"
+        description: "Saved files get Open and Open Folder actions"
         defaultValue: Config.DEFAULTS.notify
     }
 
-    // ── Backend ──────────────────────────────────────────────────────────────
-
-    StyledText {
-        width: parent.width
-        topPadding: Theme.spacingM
-        text: "冻结帧后端"
-        font.pixelSize: Theme.fontSizeLarge
-        font.weight: Font.Bold
-        color: Theme.surfaceText
-    }
+    SectionTitle { text: "Frozen frame"; topPadding: Theme.spacingM }
 
     SelectionSetting {
         settingKey: "backend"
-        label: "抓帧方式"
-        description: "screencopy 更快（约 50ms 出帧），但原版 Quickshell ≤ 0.3.1 会因 quickshell#1094 崩掉整个 shell。只有确认 Quickshell 已修复时才选它。"
+        label: "Backend"
+        description: "screencopy shows the frame sooner (about 50 ms) but crashes stock Quickshell 0.3.1 and older (quickshell#1094). Choose it only with a fixed Quickshell."
         options: [
-            { "label": "cli — 稳定（默认）", "value": "cli" },
-            { "label": "screencopy — 快，需要修复过的 Quickshell", "value": "screencopy" }
+            { "label": "cli (default)", "value": "cli" },
+            { "label": "screencopy (needs a fixed Quickshell)", "value": "screencopy" }
         ]
         defaultValue: Config.DEFAULTS.backend
     }
