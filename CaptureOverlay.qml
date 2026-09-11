@@ -66,20 +66,31 @@ Variants {
         function toLocalX(gx) { return gx - originX }
         function toLocalY(gy) { return gy - originY }
 
-        readonly property bool hasSel: root.ctl ? root.ctl.hasSelection : false
-        readonly property real selLX: root.ctl ? toLocalX(root.ctl.selX) : 0
-        readonly property real selLY: root.ctl ? toLocalY(root.ctl.selY) : 0
-        readonly property real selLW: root.ctl ? root.ctl.selW : 0
-        readonly property real selLH: root.ctl ? root.ctl.selH : 0
+        // The selection clipped to this screen. Beyond the screen edge there
+        // are no pixels, so that part is neither shown nor exported.
+        readonly property real selLX: root.ctl ? Math.max(0, toLocalX(root.ctl.selX)) : 0
+        readonly property real selLY: root.ctl ? Math.max(0, toLocalY(root.ctl.selY)) : 0
+        readonly property real selLW: root.ctl ? Math.min(width, toLocalX(root.ctl.selX) + root.ctl.selW) - selLX : 0
+        readonly property real selLH: root.ctl ? Math.min(height, toLocalY(root.ctl.selY) + root.ctl.selH) - selLY : 0
+        readonly property bool hasSel: root.ctl ? root.ctl.hasSelection && selLW >= 1 && selLH >= 1 : false
 
-        // The screen containing the selection center handles keys and export.
+        // The screen showing the largest part of the selection handles keys
+        // and export.
         readonly property bool ownsSelection: {
-            if (!hasSel)
+            if (!root.ctl || !root.ctl.hasSelection)
                 return true
-            const cx = root.ctl.selX + root.ctl.selW / 2
-            const cy = root.ctl.selY + root.ctl.selH / 2
-            return cx >= originX && cx < originX + modelData.width
-                && cy >= originY && cy < originY + modelData.height
+            const c = root.ctl
+            let best = "", bestArea = 0
+            for (const name in c.screenInfo) {
+                const s = c.screenInfo[name]
+                const w = Math.min(s.x + s.width, c.selX + c.selW) - Math.max(s.x, c.selX)
+                const h = Math.min(s.y + s.height, c.selY + c.selH) - Math.max(s.y, c.selY)
+                if (w > 0 && h > 0 && w * h > bestArea) {
+                    bestArea = w * h
+                    best = name
+                }
+            }
+            return best === screenName
         }
 
         readonly property alias keyHandler: keyHandler
@@ -543,8 +554,8 @@ Variants {
             // window's devicePixelRatio, which differs from the output scale
             // under fractional scaling.
             const d = modelData.devicePixelRatio || 1
-            const w = Math.max(1, Math.round(root.ctl.selW * win.outScale / d))
-            const h = Math.max(1, Math.round(root.ctl.selH * win.outScale / d))
+            const w = Math.max(1, Math.round(win.selLW * win.outScale / d))
+            const h = Math.max(1, Math.round(win.selLH * win.outScale / d))
             const path = "/tmp/screenshot-plus-" + Date.now() + ".png"
 
             const ok = annot.exportItem.grabToImage(result => {
