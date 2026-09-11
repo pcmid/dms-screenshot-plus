@@ -29,9 +29,6 @@
   "Backend": {
     "Backend": "后端"
   },
-  "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes stock Quickshell 0.3.1 and older when the overlay closes (quickshell#1094); use it only with a fixed Quickshell.": {
-    "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes stock Quickshell 0.3.1 and older when the overlay closes (quickshell#1094); use it only with a fixed Quickshell.": "cli 用 dms screenshot 抓帧，任何 Quickshell 都可用。screencopy 出帧快约三倍，但原版 Quickshell 0.3.1 及更早版本会在关闭 overlay 时崩掉整个 shell（quickshell#1094），只有 Quickshell 已包含修复时才选它。"
-  },
   "Select": {
     "Select": "选择"
   },
@@ -100,5 +97,8 @@
   },
   "Could not save to": {
     "Could not save to": "无法保存到"
+  },
+  "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes current stock Quickshell when the overlay closes (quickshell#1094, fix pending); use it only with a Quickshell that includes the fix.": {
+    "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes current stock Quickshell when the overlay closes (quickshell#1094, fix pending); use it only with a Quickshell that includes the fix.": "cli 用 dms screenshot 抓帧，任何 Quickshell 都可用。screencopy 出帧快约三倍，但当前原版 Quickshell 会在关闭 overlay 时崩掉整个 shell（quickshell#1094，修复尚未合入），只有 Quickshell 已包含修复时才选它。"
   }
 }

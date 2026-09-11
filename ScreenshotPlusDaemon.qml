@@ -24,7 +24,7 @@ PluginComponent {
     // ── Settings ─────────────────────────────────────────────────────────────
 
     // "cli" shells out to `dms screenshot`. "screencopy" reads the frame via
-    // ScreencopyView, which crashes stock Quickshell <= 0.3.1 (quickshell#1094).
+    // ScreencopyView, which crashes current stock Quickshell (quickshell#1094, fix pending).
     readonly property string backend: Config.read(pluginData, "backend") === "screencopy" ? "screencopy" : "cli"
     readonly property var enabledTools: Tools.TOOLS.filter(t => Config.toolEnabled(pluginData, t.id)).map(t => t.id)
     readonly property string defaultColor: {

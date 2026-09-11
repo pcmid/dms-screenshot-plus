@@ -87,7 +87,7 @@ PluginSettings {
         settingKey: "backend"
         label: I18n.trFor("screenshotPlus", "Backend")
         topPadding: Theme.spacingM
-        description: I18n.trFor("screenshotPlus", "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes stock Quickshell 0.3.1 and older when the overlay closes (quickshell#1094); use it only with a fixed Quickshell.")
+        description: I18n.trFor("screenshotPlus", "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes current stock Quickshell when the overlay closes (quickshell#1094, fix pending); use it only with a Quickshell that includes the fix.")
         options: [
             { "label": "cli", "value": "cli" },
             { "label": "screencopy", "value": "screencopy" }
