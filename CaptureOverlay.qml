@@ -137,6 +137,12 @@ Variants {
             root.ctl.setSelection(Math.min(l, r), Math.min(t, b), Math.abs(r - l), Math.abs(b - t))
         }
 
+        function clearAnnotations() {
+            if (annot.editingText)
+                annot.cancelTextEdit()
+            root.ctl.clearStrokes()
+        }
+
         // Esc / right click: leave one layer of state at a time.
         function peelBack() {
             if (annot.editingText)

@@ -41,8 +41,15 @@ Item {
 
     component Divider: Item {
         width: 13
-        height: 20
+        height: 32   // as tall as the buttons, so the line sits on their center
         Rectangle { anchors.centerIn: parent; width: 1; height: 20; color: Theme.withAlpha(Theme.outline, 0.3) }
+    }
+
+    // Swallows clicks on padding and dividers, which would otherwise reach
+    // the overlay underneath and start a new selection.
+    component ClickShield: MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.AllButtons
     }
 
     Rectangle {
@@ -54,6 +61,8 @@ Item {
         color: Theme.surfaceContainer
         border.color: Theme.withAlpha(Theme.outline, 0.2)
         border.width: 1
+
+        ClickShield {}
 
         // Right-aligned with the selection, clamped to the screen.
         x: Math.max(toolbar.pad, Math.min(overlay.width - width - toolbar.pad,
@@ -109,6 +118,13 @@ Item {
                 tooltipText: I18n.trFor("screenshotPlus", "Redo (Ctrl+Shift+Z)")
                 onClicked: ctl.redo()
             }
+            BarButton {
+                iconName: "delete_sweep"
+                enabled: ctl && ctl.strokes.length > 0
+                iconColor: enabled ? Theme.surfaceText : Theme.withAlpha(Theme.surfaceVariantText, 0.4)
+                tooltipText: I18n.trFor("screenshotPlus", "Clear all annotations")
+                onClicked: overlay.clearAnnotations()
+            }
 
             Divider {}
 
@@ -145,6 +161,8 @@ Item {
         border.width: 1
         x: Math.max(toolbar.pad, Math.min(overlay.width - width - toolbar.pad, bar.x + bar.width - width))
         y: toolbar.barBelow ? bar.y + bar.height + toolbar.gap : bar.y - height - toolbar.gap
+
+        ClickShield {}
 
         Column {
             id: panelCol

@@ -100,5 +100,8 @@
   },
   "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes current stock Quickshell when the overlay closes (quickshell#1094, fix pending); use it only with a Quickshell that includes the fix.": {
     "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes current stock Quickshell when the overlay closes (quickshell#1094, fix pending); use it only with a Quickshell that includes the fix.": "cli 用 dms screenshot 抓帧，任何 Quickshell 都可用。screencopy 出帧快约三倍，但当前原版 Quickshell 会在关闭 overlay 时崩掉整个 shell（quickshell#1094，修复尚未合入），只有 Quickshell 已包含修复时才选它。"
+  },
+  "Clear all annotations": {
+    "Clear all annotations": "清除全部标注"
   }
 }

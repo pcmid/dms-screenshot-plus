@@ -219,6 +219,11 @@ PluginComponent {
             root.commitStrokes(root.strokes.filter(s => s.id !== id))
     }
 
+    function clearStrokes() {
+        if (root.strokes.length > 0)
+            root.commitStrokes([])
+    }
+
     function undo() {
         if (root.history.length === 0)
             return

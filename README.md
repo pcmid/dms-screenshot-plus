@@ -61,6 +61,7 @@ Mod+Shift+S { spawn "dms" "ipc" "call" "screenshotPlus" "capture"; }
 | Text | `T` | Click to start typing; `Enter` commits, `Shift+Enter` breaks the line, `Esc` cancels; input methods work |
 | Number | `N` | Click to place the next number; removing one renumbers the rest |
 | Undo, redo | `Ctrl+Z`, `Ctrl+Shift+Z` | |
+| Clear all | | Toolbar button; removes every annotation, undoable |
 
 The palette button opens the color and size panel. Each tool keeps its own size for the session, so a large pen does not make the text large.
 
