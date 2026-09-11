@@ -69,9 +69,19 @@ DMS Settings, Plugins, Screenshot+:
 - **Toolbar**: one switch per tool. Disabled tools are hidden and lose their shortcut.
 - **Default style**: color and size at the start of each capture.
 - **Output**: copy to clipboard, save to file, save directory (empty for the Screenshots folder in your Pictures directory), notification.
-- **Frozen frame**: `cli` (default) grabs the screen with `dms screenshot`. `screencopy` reads the compositor's frame directly and shows it sooner, but crashes stock Quickshell 0.3.1 and older ([quickshell#1094](https://github.com/quickshell-mirror/quickshell/issues/1094)). Choose it only with a fixed Quickshell.
+- **Backend**: `cli` or `screencopy`, see [Backends](#backends).
 
-### IPC
+## Backends
+
+Both backends freeze the screen under the overlay, so the dimmer and the annotations are drawn over a still image while the desktop keeps running underneath.
+
+**cli** (default) runs `dms screenshot output` for every screen before the overlay is mapped, writes the frames as PNG files to `/tmp` and loads them into an `Image`. The overlay appears immediately and fully transparent, the dimmer is drawn as soon as the grab has returned, and the decoded frame replaces the live desktop a moment later. The switch is invisible because both show the same picture. This backend works with any Quickshell.
+
+**screencopy** captures the frame in-process through Quickshell's `ScreencopyView`, which speaks the wlr-screencopy protocol directly to the compositor. Nothing is encoded, written or decoded, so the frame is on screen about three times sooner. Stock Quickshell 0.3.1 and older crashes the whole shell when the overlay closes: its screencopy backend binds a second `wl_output` with Qt's own listener, QtWayland mistakes that object for a screen and dereferences it after it has been freed. The analysis and the fix are in [quickshell#1094](https://github.com/quickshell-mirror/quickshell/issues/1094). Choose this backend only with a Quickshell that includes the fix.
+
+With either backend the export reuses the frame texture through a `ShaderEffectSource` sampled at the screen's native resolution, so both produce the same output.
+
+## IPC
 
 ```
 dms ipc call screenshotPlus capture   # open the overlay
@@ -109,3 +119,4 @@ Component errors and `console.warn` output appear in `journalctl --user -u dms`.
 | `lib/Renderer.js`, `lib/Hit.js` | Drawing and hit-testing of strokes |
 | `lib/Config.js` | Setting defaults |
 | `lib/finalize.sh` | Post-export: save, notify, clean up |
+| `translations/<locale>.json` | UI strings; add a file to add a language |

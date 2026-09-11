@@ -73,7 +73,7 @@ Item {
                     required property var modelData
                     readonly property bool active: ctl && ctl.activeTool === modelData.id
                     iconName: modelData.icon
-                    tooltipText: modelData.label + " (" + modelData.key + ")"
+                    tooltipText: I18n.trFor("screenshotPlus", modelData.label) + " (" + modelData.key + ")"
                     backgroundColor: active ? Theme.withAlpha(Theme.primary, 0.25) : "transparent"
                     iconColor: active ? Theme.primary : Theme.surfaceText
                     onClicked: {
@@ -87,7 +87,7 @@ Item {
 
             BarButton {
                 iconName: "palette"
-                tooltipText: "Color / size"
+                tooltipText: I18n.trFor("screenshotPlus", "Color / size")
                 backgroundColor: toolbar.panelOpen ? Theme.withAlpha(Theme.primary, 0.25) : "transparent"
                 iconColor: ctl ? ctl.strokeColor : Theme.surfaceText
                 onClicked: toolbar.panelOpen = !toolbar.panelOpen
@@ -99,14 +99,14 @@ Item {
                 iconName: "undo"
                 enabled: ctl && ctl.canUndo
                 iconColor: enabled ? Theme.surfaceText : Theme.withAlpha(Theme.surfaceVariantText, 0.4)
-                tooltipText: "Undo (Ctrl+Z)"
+                tooltipText: I18n.trFor("screenshotPlus", "Undo (Ctrl+Z)")
                 onClicked: ctl.undo()
             }
             BarButton {
                 iconName: "redo"
                 enabled: ctl && ctl.canRedo
                 iconColor: enabled ? Theme.surfaceText : Theme.withAlpha(Theme.surfaceVariantText, 0.4)
-                tooltipText: "Redo (Ctrl+Shift+Z)"
+                tooltipText: I18n.trFor("screenshotPlus", "Redo (Ctrl+Shift+Z)")
                 onClicked: ctl.redo()
             }
 
@@ -114,19 +114,19 @@ Item {
 
             BarButton {
                 iconName: "save"
-                tooltipText: "Save to file (Ctrl+S)"
+                tooltipText: I18n.trFor("screenshotPlus", "Save to file (Ctrl+S)")
                 onClicked: ctl.finish("save")
             }
             BarButton {
                 iconName: "content_copy"
                 iconColor: Theme.success
-                tooltipText: "Copy to clipboard (Enter)"
+                tooltipText: I18n.trFor("screenshotPlus", "Copy to clipboard (Enter)")
                 onClicked: ctl.finish("copy")
             }
             BarButton {
                 iconName: "close"
                 iconColor: Theme.error
-                tooltipText: "Cancel (Esc)"
+                tooltipText: I18n.trFor("screenshotPlus", "Cancel (Esc)")
                 onClicked: ctl.cancel()
             }
         }
@@ -179,7 +179,7 @@ Item {
                     buttonSize: 26
                     iconSize: 16
                     iconColor: Theme.surfaceText
-                    tooltipText: "Custom color"
+                    tooltipText: I18n.trFor("screenshotPlus", "Custom color")
                     onClicked: toolbar.pickCustomColor()
                 }
             }
@@ -221,7 +221,7 @@ Item {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     leftPadding: Theme.spacingXS
-                    text: (Tools.byId(toolbar.sizeTool) || {}).label || ""
+                    text: I18n.trFor("screenshotPlus", (Tools.byId(toolbar.sizeTool) || {}).label || "")
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceVariantText
                 }

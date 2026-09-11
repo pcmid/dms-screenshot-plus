@@ -1,0 +1,104 @@
+{
+  "Toolbar": {
+    "Toolbar": "工具栏"
+  },
+  "Default style": {
+    "Default style": "默认样式"
+  },
+  "Color": {
+    "Color": "颜色"
+  },
+  "Size": {
+    "Size": "粗细"
+  },
+  "Output": {
+    "Output": "输出"
+  },
+  "Copy to clipboard": {
+    "Copy to clipboard": "复制到剪贴板"
+  },
+  "Save to file": {
+    "Save to file": "保存到文件"
+  },
+  "Save directory": {
+    "Save directory": "保存目录"
+  },
+  "Notify when done": {
+    "Notify when done": "完成后通知"
+  },
+  "Backend": {
+    "Backend": "后端"
+  },
+  "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes stock Quickshell 0.3.1 and older when the overlay closes (quickshell#1094); use it only with a fixed Quickshell.": {
+    "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes stock Quickshell 0.3.1 and older when the overlay closes (quickshell#1094); use it only with a fixed Quickshell.": "cli 用 dms screenshot 抓帧，任何 Quickshell 都可用。screencopy 出帧快约三倍，但原版 Quickshell 0.3.1 及更早版本会在关闭 overlay 时崩掉整个 shell（quickshell#1094），只有 Quickshell 已包含修复时才选它。"
+  },
+  "Select": {
+    "Select": "选择"
+  },
+  "Rectangle": {
+    "Rectangle": "矩形"
+  },
+  "Ellipse": {
+    "Ellipse": "椭圆"
+  },
+  "Line": {
+    "Line": "直线"
+  },
+  "Arrow": {
+    "Arrow": "箭头"
+  },
+  "Pen": {
+    "Pen": "画笔"
+  },
+  "Highlighter": {
+    "Highlighter": "荧光笔"
+  },
+  "Text": {
+    "Text": "文字"
+  },
+  "Mosaic": {
+    "Mosaic": "马赛克"
+  },
+  "Number": {
+    "Number": "序号"
+  },
+  "Color / size": {
+    "Color / size": "颜色 / 粗细"
+  },
+  "Undo (Ctrl+Z)": {
+    "Undo (Ctrl+Z)": "撤销 (Ctrl+Z)"
+  },
+  "Redo (Ctrl+Shift+Z)": {
+    "Redo (Ctrl+Shift+Z)": "重做 (Ctrl+Shift+Z)"
+  },
+  "Save to file (Ctrl+S)": {
+    "Save to file (Ctrl+S)": "保存到文件 (Ctrl+S)"
+  },
+  "Copy to clipboard (Enter)": {
+    "Copy to clipboard (Enter)": "复制到剪贴板 (Enter)"
+  },
+  "Cancel (Esc)": {
+    "Cancel (Esc)": "取消 (Esc)"
+  },
+  "Custom color": {
+    "Custom color": "自定义颜色"
+  },
+  "Drag to select an area  ·  Esc to cancel": {
+    "Drag to select an area  ·  Esc to cancel": "拖动选择区域  ·  Esc 取消"
+  },
+  "Annotation color": {
+    "Annotation color": "标注颜色"
+  },
+  "Saved and copied to clipboard": {
+    "Saved and copied to clipboard": "已保存并复制到剪贴板"
+  },
+  "Saved": {
+    "Saved": "已保存"
+  },
+  "Copied to clipboard": {
+    "Copied to clipboard": "已复制到剪贴板"
+  },
+  "Could not save to": {
+    "Could not save to": "无法保存到"
+  }
+}

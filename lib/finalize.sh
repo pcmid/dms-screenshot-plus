@@ -4,7 +4,8 @@
 #   $2  non-empty to keep a copy
 #   $3  directory for the copy; empty for <Pictures>/Screenshots
 #   $4  notification body; empty for no notification
-src=$1 save=$2 dir=$3 body=$4
+#   $5  failure message; the directory is appended
+src=$1 save=$2 dir=$3 body=$4 fail=$5
 app="Screenshot+"
 
 notify() { dms notify "$app" "$@" --app "$app" --icon screenshot_region; }
@@ -15,7 +16,7 @@ if [ -n "$save" ]; then
     if mkdir -p -- "$dir" && cp -- "$src" "$dest"; then
         [ -z "$body" ] || notify "$body" --file "$dest"
     else
-        notify "Could not save to $dir"
+        notify "$fail $dir"
     fi
 elif [ -n "$body" ]; then
     notify "$body"

@@ -10,13 +10,6 @@ PluginSettings {
     id: root
     pluginId: "screenshotPlus"
 
-    readonly property var toolHints: ({
-        "select": "Click an annotation to select it, drag to move it, Delete to remove it, double-click text to edit it",
-        "highlighter": "Wide translucent stroke",
-        "text": "Enter commits, Shift+Enter inserts a line break, Esc cancels",
-        "number": "Click to place an incrementing marker; removing one renumbers the rest"
-    })
-
     component SectionTitle: StyledText {
         width: parent.width
         font.pixelSize: Theme.fontSizeLarge
@@ -24,15 +17,7 @@ PluginSettings {
         color: Theme.surfaceText
     }
 
-    component SectionNote: StyledText {
-        width: parent.width
-        font.pixelSize: Theme.fontSizeSmall
-        color: Theme.surfaceVariantText
-        wrapMode: Text.WordWrap
-    }
-
-    SectionTitle { text: "Toolbar" }
-    SectionNote { text: "Disabled tools are hidden from the toolbar and lose their shortcut." }
+    SectionTitle { text: I18n.trFor("screenshotPlus", "Toolbar") }
 
     Column {
         width: parent.width
@@ -43,26 +28,23 @@ PluginSettings {
             delegate: ToggleSetting {
                 required property var modelData
                 settingKey: Config.toolEnabledKey(modelData.id)
-                label: modelData.label + " (" + modelData.key + ")"
-                description: root.toolHints[modelData.id] || ""
+                label: I18n.trFor("screenshotPlus", modelData.label) + " (" + modelData.key + ")"
                 defaultValue: true
             }
         }
     }
 
-    SectionTitle { text: "Default style"; topPadding: Theme.spacingM }
+    SectionTitle { text: I18n.trFor("screenshotPlus", "Default style"); topPadding: Theme.spacingM }
 
     ColorSetting {
         settingKey: "defaultColor"
-        label: "Color"
-        description: "Annotation color at the start of every capture; the toolbar can change it for the session"
+        label: I18n.trFor("screenshotPlus", "Color")
         defaultValue: Config.DEFAULTS.defaultColor
     }
 
     SelectionSetting {
         settingKey: "defaultWidthPreset"
-        label: "Size"
-        description: "Each tool maps S / M / L / XL to its own values: line width, font size, mosaic block size, marker radius"
+        label: I18n.trFor("screenshotPlus", "Size")
         options: [
             { "label": "S", "value": "S" },
             { "label": "M", "value": "M" },
@@ -72,46 +54,43 @@ PluginSettings {
         defaultValue: Config.DEFAULTS.defaultWidthPreset
     }
 
-    SectionTitle { text: "Output"; topPadding: Theme.spacingM }
+    SectionTitle { text: I18n.trFor("screenshotPlus", "Output"); topPadding: Theme.spacingM }
 
     ToggleSetting {
         settingKey: "copyToClipboard"
-        label: "Copy to clipboard"
-        description: "On Enter. The toolbar's copy button always copies"
+        label: I18n.trFor("screenshotPlus", "Copy to clipboard")
         defaultValue: Config.DEFAULTS.copyToClipboard
     }
 
     ToggleSetting {
         settingKey: "saveToFile"
-        label: "Save to file"
-        description: "On Enter. The toolbar's save button (Ctrl+S) always saves"
+        label: I18n.trFor("screenshotPlus", "Save to file")
         defaultValue: Config.DEFAULTS.saveToFile
     }
 
     StringSetting {
         settingKey: "saveDirectory"
-        label: "Save directory"
-        description: "Empty for the Screenshots folder inside your Pictures directory"
+        label: I18n.trFor("screenshotPlus", "Save directory")
         placeholder: "~/Pictures/Screenshots"
         defaultValue: Config.DEFAULTS.saveDirectory
     }
 
     ToggleSetting {
         settingKey: "notify"
-        label: "Notify when done"
-        description: "Saved files get Open and Open Folder actions"
+        label: I18n.trFor("screenshotPlus", "Notify when done")
         defaultValue: Config.DEFAULTS.notify
     }
 
-    SectionTitle { text: "Frozen frame"; topPadding: Theme.spacingM }
-
+    // A direct child of PluginSettings: nested settings never receive the
+    // pluginService and would show their defaults.
     SelectionSetting {
         settingKey: "backend"
-        label: "Backend"
-        description: "screencopy shows the frame sooner (about 50 ms) but crashes stock Quickshell 0.3.1 and older (quickshell#1094). Choose it only with a fixed Quickshell."
+        label: I18n.trFor("screenshotPlus", "Backend")
+        topPadding: Theme.spacingM
+        description: I18n.trFor("screenshotPlus", "cli grabs the screen with dms screenshot and works with any Quickshell. screencopy shows the frame about three times sooner but crashes stock Quickshell 0.3.1 and older when the overlay closes (quickshell#1094); use it only with a fixed Quickshell.")
         options: [
-            { "label": "cli (default)", "value": "cli" },
-            { "label": "screencopy (needs a fixed Quickshell)", "value": "screencopy" }
+            { "label": "cli", "value": "cli" },
+            { "label": "screencopy", "value": "screencopy" }
         ]
         defaultValue: Config.DEFAULTS.backend
     }

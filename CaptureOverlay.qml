@@ -149,7 +149,7 @@ Variants {
                 return
             p.useOverlayLayer = true
             p.selectedColor = root.ctl.strokeColor
-            p.pickerTitle = "Annotation color"
+            p.pickerTitle = I18n.trFor("screenshotPlus", "Annotation color")
             p.onColorSelectedCallback = c => { root.ctl.strokeColor = c }
             root.ctl.pickerOpen = true
             p.show()
@@ -459,7 +459,7 @@ Variants {
             anchors.centerIn: parent
             color: Theme.surfaceText
             font.pixelSize: Theme.fontSizeLarge
-            text: "Drag to select an area  ·  Esc to cancel"
+            text: I18n.trFor("screenshotPlus", "Drag to select an area  ·  Esc to cancel")
             style: Text.Outline
             styleColor: Qt.rgba(0, 0, 0, 0.6)
         }

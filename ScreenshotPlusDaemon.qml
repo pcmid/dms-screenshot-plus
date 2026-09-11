@@ -290,9 +290,10 @@ PluginComponent {
         }
 
         const body = !root.notify ? ""
-                   : save ? (copy ? "Saved and copied to clipboard" : "Saved")
-                   : copy ? "Copied to clipboard" : ""
-        Quickshell.execDetached(["sh", root._finalizeScript, path, save ? "1" : "", save ? root._saveDir() : "", body])
+                   : save ? I18n.trFor("screenshotPlus", copy ? "Saved and copied to clipboard" : "Saved")
+                   : copy ? I18n.trFor("screenshotPlus", "Copied to clipboard") : ""
+        Quickshell.execDetached(["sh", root._finalizeScript, path, save ? "1" : "", save ? root._saveDir() : "",
+                                 body, I18n.trFor("screenshotPlus", "Could not save to")])
         root._endSession()
     }
 
