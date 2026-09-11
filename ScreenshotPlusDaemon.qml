@@ -165,12 +165,16 @@ PluginComponent {
 
     // ── Selection and strokes ────────────────────────────────────────────────
 
+    // Whole logical pixels: a selection at a fractional offset or size makes
+    // the frame copy inside it resample and look soft.
     function setSelection(x, y, w, h) {
-        root.selX = x
-        root.selY = y
-        root.selW = w
-        root.selH = h
-        root.hasSelection = w >= 1 && h >= 1
+        const x0 = Math.round(x)
+        const y0 = Math.round(y)
+        root.selX = x0
+        root.selY = y0
+        root.selW = Math.round(x + w) - x0
+        root.selH = Math.round(y + h) - y0
+        root.hasSelection = root.selW >= 1 && root.selH >= 1
     }
 
     function setTool(tool) {
