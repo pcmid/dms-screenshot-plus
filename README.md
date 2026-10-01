@@ -8,6 +8,7 @@ Drag out a selection, and the toolbar appears next to it. Draw on the picture ri
 - Select, move and delete annotations; undo and redo everything, including moves and deletes
 - Eight preset colors plus a custom color picker; four sizes, remembered per tool
 - Copy to the clipboard, save to a file, or both, with a notification that opens the file or its folder
+- Pin the capture to the screen: it stays above your windows, can be moved and scaled, and is part of the next capture
 - The overlay is up about 80 ms after the shortcut
 - Exports at the screen's native resolution on HiDPI displays; mosaics are computed on source pixels
 
@@ -53,6 +54,7 @@ Mod+Shift+S { spawn "dms" "ipc" "call" "screenshotPlus" "capture"; }
 | `Enter` / `Space` | Finish as configured (copy to clipboard by default) |
 | `Ctrl+C` / copy button | Copy to clipboard |
 | `Ctrl+S` / save button | Save to file |
+| `Ctrl+P` / pin button | Pin to the screen, see [Pinned images](#pinned-images) |
 | `Esc` / right click | Step back: text being edited, then the selected annotation, then the active tool, then the capture |
 
 The regions of exported captures are kept in DMS's plugin state, so they survive a shell reload. Regions that fall outside the current screens are skipped.
@@ -71,13 +73,31 @@ The regions of exported captures are kept in DMS's plugin state, so they survive
 
 The palette button opens the color and size panel. Each tool keeps its own size for the session, so a large pen does not make the text large.
 
+The toolbar follows the selection. Drag the handle at its left end to put it anywhere; it stays there until a new selection is started.
+
+### Pinned images
+
+A pinned capture stays on screen above your windows, exactly where the selection was, until you close it. It is part of the next capture, so several regions can be collected into one picture. Keys go to the pin you clicked last; its border is brighter.
+
+| Action | Effect |
+|---|---|
+| Drag | Move |
+| Wheel, `+` / `-` | Scale around the pointer; `0` is back to 1:1 |
+| `Ctrl` + wheel | Opacity |
+| `Enter` / `Space` / `Ctrl+C` | Copy to clipboard |
+| `S` / `Ctrl+S` | Save to file |
+| Right click / `Tab` | Copy, save and close buttons |
+| `Esc` / `Q` / double click / middle click | Close |
+
+Pins last until they are closed or the shell is reloaded. Each pin is a transparent window the size of its screen that only takes input on the picture, so close the ones you are done with.
+
 ### Settings
 
 DMS Settings, Plugins, Screenshot+:
 
 - **Toolbar**: one switch per tool. Disabled tools are hidden and lose their shortcut.
 - **Default style**: color and size at the start of each capture.
-- **Output**: copy to clipboard, save to file, save directory (empty for the Screenshots folder in your Pictures directory), file name as a `date` format without the extension (empty for `screenshot-%Y%m%d-%H%M%S`), notification.
+- **Output**: what `Enter` does: copy to clipboard, save to file, pin to screen; save directory (empty for the Screenshots folder in your Pictures directory), file name as a `date` format without the extension (empty for `screenshot-%Y%m%d-%H%M%S`), notification.
 - **Backend**: `cli` or `screencopy`, see [Backends](#backends).
 
 ## Backends
@@ -121,6 +141,7 @@ Component errors and `console.warn` output appear in `journalctl --user -u dms`.
 |---|---|
 | `ScreenshotPlusDaemon.qml` | Session state, frozen frames, export handling, IPC |
 | `CaptureOverlay.qml` | One layer-shell window per screen: selection, pointer and keyboard handling, export |
+| `PinnedImage.qml` | One window per pinned capture: moving, scaling, copy / save / close |
 | `AnnotationLayer.qml` | The exported subtree (frame, mosaics, strokes) plus the selection outline and text editor |
 | `Toolbar.qml` | Toolbar and color / size panel |
 | `ScreenshotPlusSettings.qml` | Settings page |

@@ -10,7 +10,8 @@ import "lib/Hit.js" as Hit
 
 // State shared by every screen during a capture: the selection, the strokes
 // and their history, the tool and style, the frozen frames. CaptureOverlay
-// puts one window per screen on top of this.
+// puts one window per screen on top of this; PinnedImage keeps exports on
+// screen after the session.
 //
 // The selection and the strokes are stored in global logical coordinates
 // (the compositor's layout space); each overlay subtracts its screen origin.
@@ -34,6 +35,7 @@ PluginComponent {
     readonly property string defaultWidthPreset: Config.read(pluginData, "defaultWidthPreset")
     readonly property bool copyToClipboard: Config.read(pluginData, "copyToClipboard") !== false
     readonly property bool saveToFile: Config.read(pluginData, "saveToFile") === true
+    readonly property bool pinToScreen: Config.read(pluginData, "pinToScreen") === true
     readonly property string saveDirectory: String(Config.read(pluginData, "saveDirectory") || "")
     readonly property string fileNamePattern: String(Config.read(pluginData, "fileNamePattern") || "").trim()
     readonly property bool notify: Config.read(pluginData, "notify") !== false
@@ -89,7 +91,7 @@ PluginComponent {
 
     // ── Export ───────────────────────────────────────────────────────────────
 
-    property string exportIntent: "default"   // default (follow settings) | copy | save
+    property string exportIntent: "default"   // default (follow settings) | copy | save | pin
     property bool _finishPending: false
     signal exportRequested                    // handled by the overlay that owns the selection
 
@@ -100,6 +102,16 @@ PluginComponent {
     // uncompressed PPM instead and finalize.sh converts it in the background.
     property string _encoder: ""
     readonly property string exportFormat: _encoder !== "" ? "ppm" : "png"
+
+    // ── Pinned images ────────────────────────────────────────────────────────
+    // Exports kept on screen as PinnedImage windows, one per entry. Entries
+    // never change once added, since Variants would re-create the window;
+    // the PNG a pin owns for copy and save lives in _pinFiles and is removed
+    // when the pin closes.
+
+    property var pins: []              // [{ id, screen, x, y, w, h, src }]
+    property var _pinFiles: ({})       // id -> PNG path
+    property int _nextPinId: 1
 
     // ── Session ──────────────────────────────────────────────────────────────
 
@@ -365,28 +377,42 @@ PluginComponent {
 
     // ── Export result ────────────────────────────────────────────────────────
 
-    // Called by the overlay once the selection has been written to `path`.
-    // The session ends right away; conversion, saving and the notification
-    // happen in finalize.sh, and the clipboard is filled when it is done.
-    function onExported(path) {
+    // Called by the overlay once the selection has been written to `path`;
+    // `geom` is { screen, x, y, w, h }, the exported part of the selection in
+    // that screen's coordinates. The session ends right away; conversion,
+    // saving and the notification happen in finalize.sh, and the clipboard
+    // is filled when it is done.
+    function onExported(path, geom) {
         const intent = root.exportIntent
         const copy = intent === "copy" || (intent === "default" && root.copyToClipboard)
         const save = intent === "save" || (intent === "default" && root.saveToFile)
+        const pin = intent === "pin" || (intent === "default" && root.pinToScreen)
+        root._rememberRegion()
+        root._endSession()
+        // Before finalize.sh starts: the pin loads the file, finalize.sh deletes it.
+        const pinId = pin ? root._addPin(path, geom) : 0
+        root._finalize(path, copy, save, pinId)
+    }
+
+    // Runs finalize.sh on `path` and acts on the PNG it prints. The PNG is
+    // removed once the clipboard has read it, unless it belongs to pin `pinId`.
+    function _finalize(path, copy, save, pinId) {
         const body = !root.notify ? ""
                    : save ? (copy ? I18n.trFor("screenshotPlus", "Saved and copied to clipboard") : I18n.trFor("screenshotPlus", "Saved"))
                    : copy ? I18n.trFor("screenshotPlus", "Copied to clipboard") : ""
         const args = [path, save ? "1" : "", save ? root._saveDir() : "", body,
                       I18n.trFor("screenshotPlus", "Could not save to"), root._encoder, root.fileNamePattern]
-        root._rememberRegion()
-        root._endSession()
-        Proc.runCommand("screenshotPlus.finalize", ["sh", root._finalizeScript, ...args], (stdout, code) => {
+        const job = "screenshotPlus.finalize" + (pinId ? ".pin" + pinId : "")
+        Proc.runCommand(job, ["sh", root._finalizeScript, ...args], (stdout, code) => {
             const png = String(stdout).trim().split("\n").pop()
             if (code !== 0 || !png) {
                 console.warn("screenshotPlus: finalize failed:", code, String(stdout).trim().slice(0, 200))
                 return
             }
-            // The clipboard and the notification daemon read the file asynchronously.
-            Quickshell.execDetached(["sh", "-c", 'sleep 10; rm -f -- "$1"', "sh", png])
+            if (pinId && root.pins.some(p => p.id === pinId))
+                root._pinFiles = Object.assign({}, root._pinFiles, { [pinId]: png })
+            else   // the clipboard and the notification daemon read the file asynchronously
+                Quickshell.execDetached(["sh", "-c", 'sleep 10; rm -f -- "$1"', "sh", png])
             if (copy) {
                 DMSService.sendRequest("clipboard.copyFile", { "filePath": png }, resp => {
                     if (resp && resp.error)
@@ -400,6 +426,42 @@ PluginComponent {
     function _saveDir() {
         const d = root.saveDirectory.trim().replace(/\/+$/, "")
         return d.startsWith("~/") ? Quickshell.env("HOME") + d.slice(1) : d
+    }
+
+    // ── Pins ─────────────────────────────────────────────────────────────────
+
+    function _addPin(src, g) {
+        const id = root._nextPinId++
+        root.pins = [...root.pins, { "id": id, "screen": g.screen, "x": g.x, "y": g.y, "w": g.w, "h": g.h, "src": src }]
+        return id
+    }
+
+    function unpin(id) {
+        const png = root._pinFiles[id]
+        if (png) {
+            const files = Object.assign({}, root._pinFiles)
+            delete files[id]
+            root._pinFiles = files
+            Quickshell.execDetached(["rm", "-f", "--", png])
+        }
+        root.pins = root.pins.filter(p => p.id !== id)
+    }
+
+    function unpinAll() {
+        for (const id in root._pinFiles)
+            Quickshell.execDetached(["rm", "-f", "--", root._pinFiles[id]])
+        root._pinFiles = {}
+        root.pins = []
+    }
+
+    // Copy or save a pin: finalize.sh once more on its PNG, which stays in place.
+    function exportPin(id, intent) {
+        const png = root._pinFiles[id]
+        if (!png) {
+            console.warn("screenshotPlus: pin", id, "has no file yet")
+            return
+        }
+        root._finalize(png, intent === "copy", intent === "save", id)
     }
 
     // ── IPC ──────────────────────────────────────────────────────────────────
@@ -428,6 +490,13 @@ PluginComponent {
         ctl: root
     }
 
+    Variants {
+        model: root.pins
+        delegate: PinnedImage {
+            ctl: root
+        }
+    }
+
     Component.onCompleted: {
         Proc.runCommand("screenshotPlus.encoder",
                         ["sh", "-c", "command -v ffmpeg >/dev/null && echo ffmpeg || { command -v magick >/dev/null && echo magick; }"],
@@ -437,5 +506,6 @@ PluginComponent {
     Component.onDestruction: {
         if (root.active)
             root._endSession()
+        root.unpinAll()
     }
 }
