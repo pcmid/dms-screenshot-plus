@@ -48,10 +48,14 @@ Mod+Shift+S { spawn "dms" "ipc" "call" "screenshotPlus" "capture"; }
 | Drag on the dimmed screen | Create the selection |
 | Drag inside the selection (no tool active) | Move it |
 | Drag one of the eight handles | Resize it |
+| `F` | Select the whole screen under the pointer |
+| `<` / `>` (or `,` / `.`) | Step back / forward through the regions of the last ten captures; `>` past the newest brings back the selection you had |
 | `Enter` / `Space` | Finish as configured (copy to clipboard by default) |
 | `Ctrl+C` / copy button | Copy to clipboard |
 | `Ctrl+S` / save button | Save to file |
 | `Esc` / right click | Step back: text being edited, then the selected annotation, then the active tool, then the capture |
+
+The regions of exported captures are kept in DMS's plugin state, so they survive a shell reload. Regions that fall outside the current screens are skipped.
 
 ### Tools
 
