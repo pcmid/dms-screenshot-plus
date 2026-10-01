@@ -52,6 +52,20 @@ PluginComponent {
     property real selY: 0
     property real selW: 0
     property real selH: 0
+    property string hoverScreen: ""    // the screen under the pointer, for `F`
+
+    // ── Region history ───────────────────────────────────────────────────────
+    // The regions of the last exports, most recent first, in global logical
+    // coordinates. Kept in DMS's plugin state so they survive a shell reload.
+    // `<` and `>` walk through the ones that fall on a current screen.
+
+    readonly property int maxRegions: 10
+    property var regionHistory: []     // [{ x, y, w, h }]
+    property bool _regionsLoaded: false
+    property var _sessionRegions: []   // regionHistory restricted to the current screens
+    property int regionIndex: -1       // entry of _sessionRegions shown by the selection, -1 = none
+    property var _ownRegion: null      // the selection `<` replaced, brought back by `>`
+    readonly property bool hasRegionHistory: _sessionRegions.length > 0
 
     // ── Tool and style ───────────────────────────────────────────────────────
 
@@ -95,6 +109,8 @@ PluginComponent {
         root._resetSession()
         PopoutManager.screenshotActive = true   // closes popouts before the grab
         root._collectScreenInfo()
+        root._loadRegionHistory()
+        root._sessionRegions = root.regionHistory.filter(r => root._onAnyScreen(r))
         if (root.backend === "cli") {
             // Start the grab before mapping the overlay: `dms screenshot` runs
             // in this process and a new layer's first frame would compete with
@@ -149,6 +165,9 @@ PluginComponent {
         root._grabbed = {}
         root._pendingGrabs = 0
         root.setSelection(0, 0, 0, 0)
+        root.hoverScreen = ""
+        root._sessionRegions = []
+        root._ownRegion = null
         root.activeTool = ""
         root.strokeColor = root.defaultColor
         root.toolWidths = Tools.defaultWidths(root.defaultWidthPreset)
@@ -182,6 +201,60 @@ PluginComponent {
         root.selW = Math.round(x + w) - x0
         root.selH = Math.round(y + h) - y0
         root.hasSelection = root.selW >= 1 && root.selH >= 1
+        root.regionIndex = -1
+    }
+
+    // `F`: the whole screen.
+    function selectScreen(name) {
+        const s = root.screenInfo[name]
+        if (!s)
+            return
+        root.select(-1)
+        root.setSelection(s.x, s.y, s.width, s.height)
+    }
+
+    // `<` (step 1) and `>` (step -1): the selection becomes an earlier
+    // region. Index -1 is the selection the user had before pressing `<`.
+    function restoreRegion(step) {
+        const i = root.regionIndex + step
+        if (i < -1 || i >= root._sessionRegions.length)
+            return
+        if (root.regionIndex === -1)
+            root._ownRegion = { "x": root.selX, "y": root.selY, "w": root.selW, "h": root.selH }
+        const r = i === -1 ? root._ownRegion : root._sessionRegions[i]
+        root.select(-1)
+        root.setSelection(r.x, r.y, r.w, r.h)
+        root.regionIndex = i
+    }
+
+    function _onAnyScreen(r) {
+        for (const name in root.screenInfo) {
+            const s = root.screenInfo[name]
+            if (r.x < s.x + s.width && r.x + r.w > s.x && r.y < s.y + s.height && r.y + r.h > s.y)
+                return true
+        }
+        return false
+    }
+
+    function _loadRegionHistory() {
+        const svc = root.pluginService
+        if (root._regionsLoaded || !svc || typeof svc.loadPluginState !== "function")
+            return
+        root._regionsLoaded = true
+        const saved = svc.loadPluginState("screenshotPlus", "regionHistory", [])
+        root.regionHistory = (Array.isArray(saved) ? saved : [])
+            .filter(r => r && [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w >= 1 && r.h >= 1)
+            .slice(0, root.maxRegions)
+    }
+
+    // Called on export: the selection moves to the front of the history.
+    function _rememberRegion() {
+        const r = { "x": root.selX, "y": root.selY, "w": root.selW, "h": root.selH }
+        const rest = root.regionHistory.filter(e => e.x !== r.x || e.y !== r.y || e.w !== r.w || e.h !== r.h)
+        root.regionHistory = [r, ...rest].slice(0, root.maxRegions)
+        const svc = root.pluginService
+        if (svc && typeof svc.savePluginState === "function")
+            svc.savePluginState("screenshotPlus", "regionHistory", root.regionHistory)
     }
 
     function setTool(tool) {
@@ -304,6 +377,7 @@ PluginComponent {
                    : copy ? I18n.trFor("screenshotPlus", "Copied to clipboard") : ""
         const args = [path, save ? "1" : "", save ? root._saveDir() : "", body,
                       I18n.trFor("screenshotPlus", "Could not save to"), root._encoder, root.fileNamePattern]
+        root._rememberRegion()
         root._endSession()
         Proc.runCommand("screenshotPlus.finalize", ["sh", root._finalizeScript, ...args], (stdout, code) => {
             const png = String(stdout).trim().split("\n").pop()

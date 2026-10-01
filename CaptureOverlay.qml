@@ -277,6 +277,7 @@ Variants {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: true
+            onEntered: if (root.ctl) root.ctl.hoverScreen = win.screenName
             cursorShape: {
                 if (win.mode === "moving")
                     return Qt.ClosedHandCursor
@@ -475,14 +476,31 @@ Variants {
             }
         }
 
-        Text {
+        Column {
             visible: !win.hasSel && win.ownsSelection && win.dimmable
             anchors.centerIn: parent
-            color: Theme.surfaceText
-            font.pixelSize: Theme.fontSizeLarge
-            text: I18n.trFor("screenshotPlus", "Drag to select an area  ·  Esc to cancel")
-            style: Text.Outline
-            styleColor: Qt.rgba(0, 0, 0, 0.6)
+            spacing: Theme.spacingS
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: Theme.surfaceText
+                font.pixelSize: Theme.fontSizeLarge
+                text: I18n.trFor("screenshotPlus", "Drag to select an area  ·  Esc to cancel")
+                style: Text.Outline
+                styleColor: Qt.rgba(0, 0, 0, 0.6)
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: Theme.surfaceText
+                opacity: 0.8
+                font.pixelSize: Theme.fontSizeMedium
+                text: root.ctl && root.ctl.hasRegionHistory
+                      ? I18n.trFor("screenshotPlus", "F  whole screen  ·  < >  previous regions")
+                      : I18n.trFor("screenshotPlus", "F  whole screen")
+                style: Text.Outline
+                styleColor: Qt.rgba(0, 0, 0, 0.6)
+            }
         }
 
         // ── Keyboard ─────────────────────────────────────────────────────────
@@ -532,6 +550,24 @@ Variants {
 
                 if (event.modifiers & Qt.AltModifier)
                     return
+
+                switch (event.key) {
+                case Qt.Key_F:
+                    root.ctl.selectScreen(root.ctl.hoverScreen || win.screenName)
+                    event.accepted = true
+                    return
+                case Qt.Key_Less:          // `,` too, so no Shift is needed on a US layout
+                case Qt.Key_Comma:
+                    root.ctl.restoreRegion(1)
+                    event.accepted = true
+                    return
+                case Qt.Key_Greater:
+                case Qt.Key_Period:
+                    root.ctl.restoreRegion(-1)
+                    event.accepted = true
+                    return
+                }
+
                 if (event.key >= Qt.Key_A && event.key <= Qt.Key_Z) {
                     const t = Tools.byKey(String.fromCharCode(65 + (event.key - Qt.Key_A)), root.ctl.enabledTools)
                     if (t) {
