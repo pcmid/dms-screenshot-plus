@@ -20,6 +20,9 @@
   "Save to file": {
     "Save to file": "保存到文件"
   },
+  "Pin to screen": {
+    "Pin to screen": "固定到屏幕"
+  },
   "Save directory": {
     "Save directory": "保存目录"
   },
@@ -82,6 +85,12 @@
   },
   "Cancel (Esc)": {
     "Cancel (Esc)": "取消 (Esc)"
+  },
+  "Pin to screen (Ctrl+P)": {
+    "Pin to screen (Ctrl+P)": "固定到屏幕 (Ctrl+P)"
+  },
+  "Close (Esc)": {
+    "Close (Esc)": "关闭 (Esc)"
   },
   "Custom color": {
     "Custom color": "自定义颜色"

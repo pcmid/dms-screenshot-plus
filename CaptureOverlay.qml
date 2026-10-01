@@ -540,6 +540,7 @@ Variants {
                     switch (event.key) {
                     case Qt.Key_C: root.ctl.finish("copy"); break
                     case Qt.Key_S: root.ctl.finish("save"); break
+                    case Qt.Key_P: root.ctl.finish("pin"); break
                     case Qt.Key_Z: shift ? root.ctl.redo() : root.ctl.undo(); break
                     case Qt.Key_Y: root.ctl.redo(); break
                     default: return
@@ -604,11 +605,13 @@ Variants {
             const w = Math.max(1, Math.round(win.selLW * win.outScale / d))
             const h = Math.max(1, Math.round(win.selLH * win.outScale / d))
             const path = "/tmp/screenshot-plus-" + Date.now() + "." + root.ctl.exportFormat
+            // Read now: the selection is gone by the time the grab returns.
+            const geom = { "screen": win.screenName, "x": win.selLX, "y": win.selLY, "w": win.selLW, "h": win.selLH }
 
             const ok = annot.exportItem.grabToImage(result => {
                 const saved = result.saveToFile(path)
                 if (saved) {
-                    root.ctl.onExported(path)
+                    root.ctl.onExported(path, geom)
                 } else {
                     console.warn("screenshotPlus: could not write", path)
                     root.ctl.cancel()

@@ -68,6 +68,12 @@ PluginSettings {
         defaultValue: Config.DEFAULTS.saveToFile
     }
 
+    ToggleSetting {
+        settingKey: "pinToScreen"
+        label: I18n.trFor("screenshotPlus", "Pin to screen")
+        defaultValue: Config.DEFAULTS.pinToScreen
+    }
+
     StringSetting {
         settingKey: "saveDirectory"
         label: I18n.trFor("screenshotPlus", "Save directory")

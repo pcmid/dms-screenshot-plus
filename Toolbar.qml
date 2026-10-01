@@ -129,6 +129,11 @@ Item {
             Divider {}
 
             BarButton {
+                iconName: "push_pin"
+                tooltipText: I18n.trFor("screenshotPlus", "Pin to screen (Ctrl+P)")
+                onClicked: ctl.finish("pin")
+            }
+            BarButton {
                 iconName: "save"
                 tooltipText: I18n.trFor("screenshotPlus", "Save to file (Ctrl+S)")
                 onClicked: ctl.finish("save")
