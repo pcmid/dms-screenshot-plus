@@ -73,6 +73,8 @@ The regions of exported captures are kept in DMS's plugin state, so they survive
 
 The palette button opens the color and size panel. Each tool keeps its own size for the session, so a large pen does not make the text large.
 
+The toolbar follows the selection. Drag the handle at its left end to put it anywhere; it stays there until a new selection is started.
+
 ### Pinned images
 
 A pinned capture stays on screen above your windows, exactly where the selection was, until you close it. It is part of the next capture, so several regions can be collected into one picture. Keys go to the pin you clicked last; its border is brighter.

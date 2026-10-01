@@ -26,7 +26,18 @@ Item {
     }
     // The bar sits below the selection when there is room, else above it.
     readonly property bool barBelow: overlay.selLY + overlay.selLH + gap + bar.height < overlay.height
-    readonly property string tooltipSide: barBelow ? "bottom" : "top"
+
+    // Dragged by its handle, the bar keeps that position instead of following
+    // the selection. The toolbar is created anew for a new selection, which
+    // puts the bar back next to it.
+    property bool placed: false
+    property real placedX: 0
+    property real placedY: 0
+
+    // Where the panel and the tooltips open: away from the selection, or
+    // wherever there is room once the bar has been placed by hand.
+    readonly property bool openDown: placed ? bar.y + bar.height + gap + panel.height < overlay.height : barBelow
+    readonly property string tooltipSide: openDown ? "bottom" : "top"
 
     anchors.fill: parent
 
@@ -64,10 +75,13 @@ Item {
 
         ClickShield {}
 
-        // Right-aligned with the selection, clamped to the screen.
-        x: Math.max(toolbar.pad, Math.min(overlay.width - width - toolbar.pad,
-                                          overlay.selLX + overlay.selLW - width))
-        y: toolbar.barBelow ? overlay.selLY + overlay.selLH + toolbar.gap
+        // Right-aligned with the selection, clamped to the screen; or where
+        // it was dragged to.
+        x: toolbar.placed ? Math.max(0, Math.min(overlay.width - width, toolbar.placedX))
+           : Math.max(toolbar.pad, Math.min(overlay.width - width - toolbar.pad,
+                                            overlay.selLX + overlay.selLW - width))
+        y: toolbar.placed ? Math.max(0, Math.min(overlay.height - height, toolbar.placedY))
+           : toolbar.barBelow ? overlay.selLY + overlay.selLH + toolbar.gap
            : overlay.selLY - toolbar.gap - height > 0 ? overlay.selLY - toolbar.gap - height
            : Math.max(toolbar.pad, overlay.selLY + overlay.selLH - height - toolbar.gap)
 
@@ -75,6 +89,44 @@ Item {
             id: row
             anchors.centerIn: parent
             spacing: 2
+
+            // Drag handle, see `placed`.
+            Item {
+                width: 18
+                height: 32
+
+                DankIcon {
+                    anchors.centerIn: parent
+                    name: "drag_indicator"
+                    size: 20
+                    color: Theme.withAlpha(Theme.surfaceText, handleArea.pressed ? 1 : 0.6)
+                }
+
+                MouseArea {
+                    id: handleArea
+                    anchors.fill: parent
+                    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+
+                    // Pointer offset inside the bar at the press, so the bar
+                    // does not jump under the pointer.
+                    property real grabDX: 0
+                    property real grabDY: 0
+
+                    onPressed: mouse => {
+                        const p = mapToItem(toolbar, mouse.x, mouse.y)
+                        grabDX = p.x - bar.x
+                        grabDY = p.y - bar.y
+                    }
+                    onPositionChanged: mouse => {
+                        if (!pressed)
+                            return
+                        const p = mapToItem(toolbar, mouse.x, mouse.y)
+                        toolbar.placedX = p.x - grabDX
+                        toolbar.placedY = p.y - grabDY
+                        toolbar.placed = true
+                    }
+                }
+            }
 
             Repeater {
                 model: toolbar.visibleTools
@@ -165,7 +217,7 @@ Item {
         border.color: Theme.withAlpha(Theme.outline, 0.2)
         border.width: 1
         x: Math.max(toolbar.pad, Math.min(overlay.width - width - toolbar.pad, bar.x + bar.width - width))
-        y: toolbar.barBelow ? bar.y + bar.height + toolbar.gap : bar.y - height - toolbar.gap
+        y: toolbar.openDown ? bar.y + bar.height + toolbar.gap : bar.y - height - toolbar.gap
 
         ClickShield {}
 
