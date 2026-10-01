@@ -136,7 +136,7 @@ Item {
             BarButton {
                 iconName: "content_copy"
                 iconColor: Theme.success
-                tooltipText: I18n.trFor("screenshotPlus", "Copy to clipboard (Enter)")
+                tooltipText: I18n.trFor("screenshotPlus", "Copy to clipboard (Enter / Space)")
                 onClicked: ctl.finish("copy")
             }
             BarButton {

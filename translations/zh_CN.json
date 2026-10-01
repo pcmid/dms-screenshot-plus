@@ -77,8 +77,8 @@
   "Save to file (Ctrl+S)": {
     "Save to file (Ctrl+S)": "保存到文件 (Ctrl+S)"
   },
-  "Copy to clipboard (Enter)": {
-    "Copy to clipboard (Enter)": "复制到剪贴板 (Enter)"
+  "Copy to clipboard (Enter / Space)": {
+    "Copy to clipboard (Enter / Space)": "复制到剪贴板 (Enter / Space)"
   },
   "Cancel (Esc)": {
     "Cancel (Esc)": "取消 (Esc)"

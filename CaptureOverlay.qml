@@ -505,6 +505,7 @@ Variants {
                     return
                 case Qt.Key_Return:
                 case Qt.Key_Enter:
+                case Qt.Key_Space:
                     root.ctl.finish("default")
                     event.accepted = true
                     return

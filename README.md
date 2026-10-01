@@ -48,7 +48,7 @@ Mod+Shift+S { spawn "dms" "ipc" "call" "screenshotPlus" "capture"; }
 | Drag on the dimmed screen | Create the selection |
 | Drag inside the selection (no tool active) | Move it |
 | Drag one of the eight handles | Resize it |
-| `Enter` | Finish as configured (copy to clipboard by default) |
+| `Enter` / `Space` | Finish as configured (copy to clipboard by default) |
 | `Ctrl+C` / copy button | Copy to clipboard |
 | `Ctrl+S` / save button | Save to file |
 | `Esc` / right click | Step back: text being edited, then the selected annotation, then the active tool, then the capture |
