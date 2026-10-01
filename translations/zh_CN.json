@@ -23,6 +23,12 @@
   "Save directory": {
     "Save directory": "保存目录"
   },
+  "File name": {
+    "File name": "文件名"
+  },
+  "date(1) format without the extension, e.g. screenshot_%Y-%m-%d_%H-%M-%S": {
+    "date(1) format without the extension, e.g. screenshot_%Y-%m-%d_%H-%M-%S": "date(1) 格式，不含扩展名，例如 screenshot_%Y-%m-%d_%H-%M-%S"
+  },
   "Notify when done": {
     "Notify when done": "完成后通知"
   },

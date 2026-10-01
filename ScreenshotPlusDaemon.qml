@@ -35,6 +35,7 @@ PluginComponent {
     readonly property bool copyToClipboard: Config.read(pluginData, "copyToClipboard") !== false
     readonly property bool saveToFile: Config.read(pluginData, "saveToFile") === true
     readonly property string saveDirectory: String(Config.read(pluginData, "saveDirectory") || "")
+    readonly property string fileNamePattern: String(Config.read(pluginData, "fileNamePattern") || "").trim()
     readonly property bool notify: Config.read(pluginData, "notify") !== false
 
     // ── Screens and frozen frames ────────────────────────────────────────────
@@ -302,7 +303,7 @@ PluginComponent {
                    : save ? (copy ? I18n.trFor("screenshotPlus", "Saved and copied to clipboard") : I18n.trFor("screenshotPlus", "Saved"))
                    : copy ? I18n.trFor("screenshotPlus", "Copied to clipboard") : ""
         const args = [path, save ? "1" : "", save ? root._saveDir() : "", body,
-                      I18n.trFor("screenshotPlus", "Could not save to"), root._encoder]
+                      I18n.trFor("screenshotPlus", "Could not save to"), root._encoder, root.fileNamePattern]
         root._endSession()
         Proc.runCommand("screenshotPlus.finalize", ["sh", root._finalizeScript, ...args], (stdout, code) => {
             const png = String(stdout).trim().split("\n").pop()

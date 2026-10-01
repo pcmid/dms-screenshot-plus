@@ -75,6 +75,14 @@ PluginSettings {
         defaultValue: Config.DEFAULTS.saveDirectory
     }
 
+    StringSetting {
+        settingKey: "fileNamePattern"
+        label: I18n.trFor("screenshotPlus", "File name")
+        description: I18n.trFor("screenshotPlus", "date(1) format without the extension, e.g. screenshot_%Y-%m-%d_%H-%M-%S")
+        placeholder: "screenshot-%Y%m%d-%H%M%S"
+        defaultValue: Config.DEFAULTS.fileNamePattern
+    }
+
     ToggleSetting {
         settingKey: "notify"
         label: I18n.trFor("screenshotPlus", "Notify when done")

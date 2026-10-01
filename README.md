@@ -73,7 +73,7 @@ DMS Settings, Plugins, Screenshot+:
 
 - **Toolbar**: one switch per tool. Disabled tools are hidden and lose their shortcut.
 - **Default style**: color and size at the start of each capture.
-- **Output**: copy to clipboard, save to file, save directory (empty for the Screenshots folder in your Pictures directory), notification.
+- **Output**: copy to clipboard, save to file, save directory (empty for the Screenshots folder in your Pictures directory), file name as a `date` format without the extension (empty for `screenshot-%Y%m%d-%H%M%S`), notification.
 - **Backend**: `cli` or `screencopy`, see [Backends](#backends).
 
 ## Backends
