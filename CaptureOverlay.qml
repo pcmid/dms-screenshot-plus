@@ -276,7 +276,7 @@ Variants {
             const d = modelData.devicePixelRatio || 1
             const w = Math.max(1, Math.round(win.selLW * win.outScale / d))
             const h = Math.max(1, Math.round(win.selLH * win.outScale / d))
-            const path = "/tmp/screenshot-plus-ocr-" + Date.now() + ".ppm"
+            const path = c.runtimeDir + "/ocr-" + Date.now() + ".ppm"
             const map = { "x": win.toGlobalX(win.selLX), "y": win.toGlobalY(win.selLY),
                           "sx": w * d / win.selLW, "sy": h * d / win.selLH }
             const token = c.beginOcr()
@@ -906,7 +906,7 @@ Variants {
             const d = modelData.devicePixelRatio || 1
             const w = Math.max(1, Math.round(win.selLW * win.outScale / d))
             const h = Math.max(1, Math.round(win.selLH * win.outScale / d))
-            const path = "/tmp/screenshot-plus-" + Date.now() + "." + root.ctl.exportFormat
+            const path = root.ctl.runtimeDir + "/screenshot-" + Date.now() + "." + root.ctl.exportFormat
             // Read now: the selection is gone by the time the grab returns.
             const geom = { "screen": win.screenName, "x": win.selLX, "y": win.selLY, "w": win.selLW, "h": win.selLH }
 

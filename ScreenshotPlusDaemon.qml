@@ -100,6 +100,10 @@ PluginComponent {
 
     readonly property string _finalizeScript: Qt.resolvedUrl("lib/finalize.sh").toString().replace(/^file:\/\//, "")
 
+    // Where frozen frames, exports and pictures for oar are written: private
+    // to the user and gone at logout. Created when the plugin loads.
+    readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") + "/screenshot-plus"
+
     // Qt encodes PNG on the GUI thread and takes about a second for a large
     // selection. With ffmpeg or ImageMagick installed the overlay writes an
     // uncompressed PPM instead and finalize.sh converts it in the background.
@@ -493,10 +497,11 @@ PluginComponent {
         root._pendingGrabs = screens.length
         for (const sc of screens) {
             const name = sc.name
-            const path = `/tmp/screenshot-plus-freeze-${name}-${stamp}.png`
+            const file = `freeze-${name}-${stamp}.png`
+            const path = root.runtimeDir + "/" + file
             Proc.runCommand("screenshotPlus.freeze." + name,
                             ["dms", "screenshot", "output", "-o", name, "--no-clipboard", "--no-notify",
-                             "--dir", "/tmp", "--filename", path.slice(5), "--format", "png", "--json"],
+                             "--dir", root.runtimeDir, "--filename", file, "--format", "png", "--json"],
                             (stdout, exitCode) => root._onFreezeDone(name, path, stdout, exitCode),
                             0, 15000)
         }
@@ -656,6 +661,7 @@ PluginComponent {
     }
 
     Component.onCompleted: {
+        Quickshell.execDetached(["mkdir", "-p", "-m", "700", "--", root.runtimeDir])
         Proc.runCommand("screenshotPlus.encoder",
                         ["sh", "-c", "command -v ffmpeg >/dev/null && echo ffmpeg || { command -v magick >/dev/null && echo magick; }"],
                         (out, code) => { root._encoder = code === 0 ? String(out).trim() : "" }, 0, 5000)
