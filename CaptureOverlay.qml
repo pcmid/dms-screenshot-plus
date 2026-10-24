@@ -151,10 +151,10 @@ Variants {
         // ── Recognized text ──────────────────────────────────────────────────
         // A double-click on text inside the selection selects the word there,
         // and the OCR button outlines every line found; either recognizes the
-        // selection first when needed. The daemon is then in text mode:
-        // presses on recognized text select text instead of moving the
-        // selection, and copying copies the text. Only the screen that owns
-        // the selection does any of this.
+        // selection first when needed. The daemon is then in text mode until
+        // it is left on purpose: presses in the selection select text, the
+        // selection stays where it is, and copying copies the text. Only the
+        // screen that owns the selection does any of this.
 
         readonly property bool canSelectText: root.ctl !== null && root.ctl.ocrEnabled && win.ownsSelection
                                               && win.frameReady && (win.toolKind === "" || win.toolKind === "select")
@@ -433,6 +433,9 @@ Variants {
 
         // ── Selection border and size readout ────────────────────────────────
 
+        // Heavier in text mode, and while recognizing on the way there, to
+        // show that presses now select text. A border is drawn inside the
+        // rectangle, so it grows into the selection.
         Rectangle {
             visible: win.hasSel && win.dimmable
             x: win.selLX
@@ -441,7 +444,7 @@ Variants {
             height: win.selLH
             color: "transparent"
             border.color: Theme.primary
-            border.width: 1
+            border.width: root.ctl && (root.ctl.textMode || root.ctl.ocrState === "running") ? 3 : 1
         }
 
         Rectangle {
@@ -483,9 +486,9 @@ Variants {
                     return Qt.SizeAllCursor
                 const gx = win.toGlobalX(mouseX)
                 const gy = win.toGlobalY(mouseY)
+                if (root.ctl && root.ctl.textMode)
+                    return win.insideSel(gx, gy) ? Qt.IBeamCursor : Qt.ArrowCursor
                 if (win.insideSel(gx, gy)) {
-                    if (root.ctl.textMode && win.textCaretAt(gx, gy, false))
-                        return Qt.IBeamCursor
                     switch (win.toolKind) {
                     case "select": return Qt.ArrowCursor
                     case "text": return Qt.IBeamCursor
@@ -513,15 +516,15 @@ Variants {
                 if (annot.editingText && !(kind === "text" && inside))
                     annot.commitTextEdit()
 
-                // In text mode a press on recognized text selects text; any
-                // other press leaves text mode and does what it always did.
+                // Text mode lasts until it is left on purpose: Esc, a right
+                // click, the OCR button or a tool. Until then a press inside
+                // the selection puts the caret at the text nearest to it and
+                // one outside does nothing, so a stray click loses nothing.
                 if (root.ctl.textMode) {
-                    const caret = inside ? win.textCaretAt(gx, gy, false) : null
-                    if (caret) {
+                    const caret = inside ? win.textCaretAt(gx, gy, true) : null
+                    if (caret)
                         win.pressText(caret, gx, gy, mouse.modifiers & Qt.ShiftModifier)
-                        return
-                    }
-                    root.ctl.exitTextMode()
+                    return
                 }
 
                 if (kind === "" || !inside) {
@@ -635,7 +638,8 @@ Variants {
         // ── Resize handles ───────────────────────────────────────────────────
 
         Repeater {
-            model: win.hasSel && win.dimmable && win.toolKind === ""
+            // Not in text mode, which keeps the selection as it is.
+            model: win.hasSel && win.dimmable && win.toolKind === "" && !root.ctl.textMode
                    ? ["tl", "t", "tr", "r", "br", "b", "bl", "l"] : []
 
             delegate: Rectangle {

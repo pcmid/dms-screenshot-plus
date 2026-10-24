@@ -107,7 +107,7 @@ With [oar](#setting-up-oar) set up, double-click text inside the selection to se
 | `Ctrl+C` / `Enter` / copy button | Copy the selected text; the overlay stays open |
 | `Esc` / right click | Leave text selection; while recognizing, stop |
 
-A press anywhere but on recognized text leaves text selection and does what it always does. Picking a drawing tool leaves it too, and moving or resizing the selection drops what was recognized.
+Text selection lasts until you leave it with `Esc`, a right click, the OCR button or a drawing tool, so a stray click loses nothing: a press elsewhere in the selection puts the caret at the nearest text, a press outside it does nothing, and the selection cannot be moved or resized meanwhile. Changing the selection, with `F` or `<` / `>`, drops what was recognized.
 
 #### Setting up oar
 

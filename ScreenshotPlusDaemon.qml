@@ -122,10 +122,10 @@ PluginComponent {
 
     // ── Text recognition ─────────────────────────────────────────────────────
     // A double-click on text inside the selection runs oar (oar-ocr, see
-    // lib/Ocr.js) on the selection and turns on text mode: presses on
-    // recognized text then select it, as in a text box, and copying copies
-    // the text. The lines belong to the selection they were recognized in
-    // and are dropped when it changes.
+    // lib/Ocr.js) on the selection and turns on text mode: presses in the
+    // selection then select text, as in a text box, and copying copies the
+    // text, until text mode is left on purpose. The lines belong to the
+    // selection they were recognized in and are dropped when it changes.
 
     readonly property bool ocrEnabled: oarPath !== ""
     property string ocrState: "idle"   // idle | running | ready | failed
