@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import qs.Common
 import qs.Services
 import "lib/Tools.js" as Tools
+import "lib/Ocr.js" as Ocr
 
 // One fullscreen layer-shell window per screen. The toolbar and the
 // annotations live in the same scene as the selection rectangle and are
@@ -147,9 +148,171 @@ Variants {
             root.ctl.clearStrokes()
         }
 
+        // ── Recognized text ──────────────────────────────────────────────────
+        // A double-click on text inside the selection selects the word there,
+        // and the OCR button outlines every line found; either recognizes the
+        // selection first when needed. The daemon is then in text mode:
+        // presses on recognized text select text instead of moving the
+        // selection, and copying copies the text. Only the screen that owns
+        // the selection does any of this.
+
+        readonly property bool canSelectText: root.ctl !== null && root.ctl.ocrEnabled && win.ownsSelection
+                                              && win.frameReady && (win.toolKind === "" || win.toolKind === "select")
+        property var textWord: null          // { a, b }: the word or line clicked into; a drag extends from it
+        property var pendingText: null       // { mark, x, y }: the double-click (or, with mark, the button) waiting for recognition
+        property var lastDoubleClick: null   // { t, x, y }: a press right after it is a triple click
+
+        // The caret position at (gx, gy) on recognized text, or null. With
+        // `anywhere` the nearest line counts, for dragging past the text.
+        function textCaretAt(gx, gy, anywhere) {
+            const lines = root.ctl.ocrLines
+            const i = Ocr.lineAt(lines, gx, gy, anywhere ? Infinity : 3)
+            return i < 0 ? null : { "line": i, "pos": Ocr.caretIn(lines[i], gx) }
+        }
+
+        // `held`: the button is still down, so moving extends from the word.
+        function textDoubleClick(gx, gy, held) {
+            const c = root.ctl
+            if (!c.ocrCurrent()) {
+                win.pendingText = { "mark": false, "x": gx, "y": gy }
+                if (c.ocrState !== "running")
+                    win.startOcr()
+                return
+            }
+            const lines = c.ocrLines
+            const i = Ocr.lineAt(lines, gx, gy, 3)
+            if (i < 0) {
+                win.showHint(lines.length === 0 ? I18n.trFor("screenshotPlus", "No text recognized")
+                                                : I18n.trFor("screenshotPlus", "No text here"), gx, gy)
+                return
+            }
+            const w = Ocr.wordAt(lines[i].chars, Ocr.charIn(lines[i], gx))
+            const a = { "line": i, "pos": w[0] }
+            const b = { "line": i, "pos": w[1] }
+            c.setTextSelection(a, b)
+            win.textWord = { "a": a, "b": b }
+            win.lastDoubleClick = { "t": Date.now(), "x": gx, "y": gy }
+            if (held)
+                win.mode = "textSelecting"
+        }
+
+        // The OCR button and O: outline the text in the selection, or leave
+        // text mode when it is already outlined. Drawing tools give way.
+        function toggleTextMarks() {
+            const c = root.ctl
+            if (c.textMarked) {
+                c.exitTextMode()
+                return
+            }
+            if (win.toolKind !== "" && win.toolKind !== "select")
+                c.setTool("")
+            if (c.ocrCurrent()) {
+                win.markText()
+                return
+            }
+            win.pendingText = { "mark": true, "x": win.toGlobalX(win.selLX), "y": win.toGlobalY(win.selLY) }
+            if (c.ocrState !== "running")
+                win.startOcr()
+        }
+
+        function markText() {
+            if (root.ctl.ocrLines.length > 0)
+                root.ctl.markText()
+            else
+                win.showHint(I18n.trFor("screenshotPlus", "No text recognized"), win.toGlobalX(win.selLX), win.toGlobalY(win.selLY))
+        }
+
+        // A press on recognized text in text mode: the caret goes there,
+        // Shift extends, and a press right after a double-click takes the line.
+        function pressText(caret, gx, gy, extend) {
+            const c = root.ctl
+            const d = win.lastDoubleClick
+            win.lastDoubleClick = null
+            win.textWord = null
+            if (d && Date.now() - d.t < Qt.styleHints.mouseDoubleClickInterval
+                    && Math.abs(gx - d.x) < 4 && Math.abs(gy - d.y) < 4) {
+                const a = { "line": caret.line, "pos": 0 }
+                const b = { "line": caret.line, "pos": c.ocrLines[caret.line].chars.length }
+                c.setTextSelection(a, b)
+                win.textWord = { "a": a, "b": b }
+            } else {
+                c.setTextSelection(extend && c.textAnchor ? c.textAnchor : caret, caret)
+            }
+            win.mode = "textSelecting"
+        }
+
+        function dragText(gx, gy) {
+            const c = root.ctl
+            const caret = win.textCaretAt(gx, gy, true)
+            const w = win.textWord
+            if (!caret)
+                return
+            if (!w)
+                c.setTextSelection(c.textAnchor, caret)
+            else if (Ocr.comparePos(caret, w.a) < 0)
+                c.setTextSelection(w.b, caret)
+            else if (Ocr.comparePos(caret, w.b) > 0)
+                c.setTextSelection(w.a, caret)
+            else
+                c.setTextSelection(w.a, w.b)
+        }
+
+        // Copies the selected text; the overlay stays, a hint below the text says so.
+        function copyText() {
+            const n = root.ctl.copySelectedText()
+            const f = root.ctl.textFocus
+            const l = f ? root.ctl.ocrLines[f.line] : null
+            win.showHint(n > 0 ? I18n.trFor("screenshotPlus", "Copied %1 characters").arg(n)
+                               : I18n.trFor("screenshotPlus", "No text selected"),
+                         l ? l.xs[f.pos] : win.toGlobalX(win.selLX),
+                         l ? l.y + l.h : win.toGlobalY(win.selLY))
+        }
+
+        // The selection's part of the frame, without annotations, at native
+        // resolution, written for the daemon to recognize. oar reads PPM,
+        // which unlike PNG costs the GUI thread next to nothing to write.
+        function startOcr() {
+            const c = root.ctl
+            const d = modelData.devicePixelRatio || 1
+            const w = Math.max(1, Math.round(win.selLW * win.outScale / d))
+            const h = Math.max(1, Math.round(win.selLH * win.outScale / d))
+            const path = "/tmp/screenshot-plus-ocr-" + Date.now() + ".ppm"
+            const map = { "x": win.toGlobalX(win.selLX), "y": win.toGlobalY(win.selLY),
+                          "sx": w * d / win.selLW, "sy": h * d / win.selLH }
+            const token = c.beginOcr()
+            const ok = annot.frameCopyItem.grabToImage(result => {
+                if (result.saveToFile(path))
+                    c.recognize(token, path, map)
+                else
+                    c.failOcr(token, I18n.trFor("screenshotPlus", "could not write %1").arg(path))
+            }, Qt.size(w, h))
+            if (!ok)
+                c.failOcr(token, I18n.trFor("screenshotPlus", "could not grab the selection"))
+        }
+
+        Connections {
+            target: root.ctl
+            function onOcrFinished(error) {
+                const p = win.pendingText
+                win.pendingText = null
+                if (!p || !win.canSelectText)   // e.g. a drawing tool was picked meanwhile
+                    return
+                if (error !== "")
+                    win.showHint(I18n.trFor("screenshotPlus", "Text recognition failed: %1").arg(error), p.x, p.y)
+                else if (p.mark)
+                    win.markText()
+                else
+                    win.textDoubleClick(p.x, p.y, false)
+            }
+        }
+
         // Esc / right click: leave one layer of state at a time.
         function peelBack() {
-            if (annot.editingText)
+            if (root.ctl.ocrState === "running")
+                root.ctl.cancelOcr()
+            else if (root.ctl.textMode)
+                root.ctl.exitTextMode()
+            else if (annot.editingText)
                 annot.cancelTextEdit()
             else if (root.ctl.selectedId >= 0)
                 root.ctl.select(-1)
@@ -235,6 +398,39 @@ Variants {
             frameItem: win.useScreencopy ? frozen : freezeImage
         }
 
+        // The lines found, outlined after the OCR button, and under them the
+        // selected text, highlighted like a text box's selection. Neither is
+        // exported.
+        Repeater {
+            model: root.ctl && root.ctl.textMarked && win.ownsSelection ? root.ctl.ocrLines : []
+            delegate: Rectangle {
+                required property var modelData
+                readonly property int pad: 2
+                x: win.toLocalX(modelData.x) - pad
+                y: win.toLocalY(modelData.y) - pad
+                width: modelData.w + pad * 2
+                height: modelData.h + pad * 2
+                radius: 3
+                color: Theme.withAlpha(Theme.primary, 0.12)
+                border.color: Theme.withAlpha(Theme.primary, 0.7)
+                border.width: 1
+            }
+        }
+
+        Repeater {
+            model: root.ctl && root.ctl.hasSelectedText && win.ownsSelection
+                   ? Ocr.rectsBetween(root.ctl.ocrLines, root.ctl.textAnchor, root.ctl.textFocus) : []
+            delegate: Rectangle {
+                required property var modelData
+                x: win.toLocalX(modelData.x)
+                y: win.toLocalY(modelData.y)
+                width: modelData.w
+                height: modelData.h
+                radius: 2
+                color: Theme.withAlpha(Theme.primary, 0.35)
+            }
+        }
+
         // ── Selection border and size readout ────────────────────────────────
 
         Rectangle {
@@ -279,11 +475,17 @@ Variants {
             hoverEnabled: true
             onEntered: if (root.ctl) root.ctl.hoverScreen = win.screenName
             cursorShape: {
+                if (win.mode === "textSelecting")
+                    return Qt.IBeamCursor
                 if (win.mode === "moving")
                     return Qt.ClosedHandCursor
                 if (win.mode === "dragStroke")
                     return Qt.SizeAllCursor
-                if (win.insideSel(win.toGlobalX(mouseX), win.toGlobalY(mouseY))) {
+                const gx = win.toGlobalX(mouseX)
+                const gy = win.toGlobalY(mouseY)
+                if (win.insideSel(gx, gy)) {
+                    if (root.ctl.textMode && win.textCaretAt(gx, gy, false))
+                        return Qt.IBeamCursor
                     switch (win.toolKind) {
                     case "select": return Qt.ArrowCursor
                     case "text": return Qt.IBeamCursor
@@ -310,6 +512,17 @@ Variants {
                 // Clicking anywhere but into the text tool's own area commits.
                 if (annot.editingText && !(kind === "text" && inside))
                     annot.commitTextEdit()
+
+                // In text mode a press on recognized text selects text; any
+                // other press leaves text mode and does what it always did.
+                if (root.ctl.textMode) {
+                    const caret = inside ? win.textCaretAt(gx, gy, false) : null
+                    if (caret) {
+                        win.pressText(caret, gx, gy, mouse.modifiers & Qt.ShiftModifier)
+                        return
+                    }
+                    root.ctl.exitTextMode()
+                }
 
                 if (kind === "" || !inside) {
                     win.beginDrag(gx, gy)
@@ -348,15 +561,28 @@ Variants {
                 }
             }
 
+            // Arrives on the second press, after onPressed has handled it.
             onDoubleClicked: mouse => {
-                if (mouse.button !== Qt.LeftButton || win.toolKind !== "select")
+                if (mouse.button !== Qt.LeftButton)
                     return
-                const s = annot.hitAt(win.toGlobalX(mouse.x), win.toGlobalY(mouse.y))
-                if (s && s.tool === "text") {
-                    if (win.mode === "dragStroke")
-                        annot.endMove()
-                    win.mode = "idle"
-                    annot.beginTextEdit(0, 0, s)
+                const gx = win.toGlobalX(mouse.x)
+                const gy = win.toGlobalY(mouse.y)
+                if (win.toolKind === "select") {
+                    const s = annot.hitAt(gx, gy)
+                    if (s) {
+                        if (s.tool === "text") {
+                            if (win.mode === "dragStroke")
+                                annot.endMove()
+                            win.mode = "idle"
+                            annot.beginTextEdit(0, 0, s)
+                        }
+                        return
+                    }
+                }
+                if (win.canSelectText && win.insideSel(gx, gy)) {
+                    if (win.mode === "moving")
+                        win.mode = "idle"   // the press began moving the selection
+                    win.textDoubleClick(gx, gy, true)
                 }
             }
 
@@ -379,6 +605,9 @@ Variants {
                     break
                 case "dragStroke":
                     annot.updateMove(c.x, c.y)
+                    break
+                case "textSelecting":
+                    win.dragText(c.x, c.y)
                     break
                 }
             }
@@ -503,6 +732,60 @@ Variants {
             }
         }
 
+        // ── Text hint ────────────────────────────────────────────────────────
+        // Short feedback where the text is: recognizing, copied, nothing there.
+
+        property string hintText: ""
+        property real hintGX: 0
+        property real hintGY: 0
+        readonly property bool recognizing: root.ctl !== null && root.ctl.ocrState === "running"
+                                            && win.pendingText !== null
+
+        function showHint(text, gx, gy) {
+            win.hintText = text
+            win.hintGX = gx
+            win.hintGY = gy
+            hintTimer.restart()
+        }
+
+        Timer {
+            id: hintTimer
+            interval: 1800
+            onTriggered: win.hintText = ""
+        }
+
+        Rectangle {
+            readonly property string message: win.recognizing ? I18n.trFor("screenshotPlus", "Recognizing text…") : win.hintText
+            readonly property real gx: win.recognizing ? win.pendingText.x : win.hintGX
+            readonly property real gy: win.recognizing ? win.pendingText.y : win.hintGY
+            visible: message !== "" && win.ownsSelection && win.hasSel && win.dimmable
+            color: Theme.withAlpha(Theme.surfaceContainer, 0.9)
+            radius: Theme.cornerRadiusSmall
+            border.color: Theme.withAlpha(Theme.outline, 0.3)
+            border.width: 1
+            width: hintLabel.implicitWidth + Theme.spacingM
+            height: hintLabel.implicitHeight + Theme.spacingXS
+            x: Math.max(0, Math.min(win.width - width, win.toLocalX(gx)))
+            y: Math.max(0, Math.min(win.height - height, win.toLocalY(gy) + Theme.spacingS))
+
+            Text {
+                id: hintLabel
+                anchors.centerIn: parent
+                color: Theme.surfaceText
+                font.pixelSize: Theme.fontSizeSmall
+                text: parent.message
+            }
+        }
+
+        onVisibleChanged: {
+            if (visible)
+                return
+            win.hintText = ""
+            win.pendingText = null
+            win.textWord = null
+            win.lastDoubleClick = null
+        }
+
         // ── Keyboard ─────────────────────────────────────────────────────────
 
         Item {
@@ -524,7 +807,10 @@ Variants {
                 case Qt.Key_Return:
                 case Qt.Key_Enter:
                 case Qt.Key_Space:
-                    root.ctl.finish("default")
+                    if (root.ctl.textMode)
+                        win.copyText()
+                    else
+                        root.ctl.finish("default")
                     event.accepted = true
                     return
                 case Qt.Key_Delete:
@@ -538,7 +824,17 @@ Variants {
 
                 if (ctrl) {
                     switch (event.key) {
-                    case Qt.Key_C: root.ctl.finish("copy"); break
+                    case Qt.Key_C:
+                        if (root.ctl.textMode)
+                            win.copyText()
+                        else
+                            root.ctl.finish("copy")
+                        break
+                    case Qt.Key_A:
+                        if (!root.ctl.textMode)
+                            return
+                        root.ctl.selectAllText()
+                        break
                     case Qt.Key_S: root.ctl.finish("save"); break
                     case Qt.Key_P: root.ctl.finish("pin"); break
                     case Qt.Key_Z: shift ? root.ctl.redo() : root.ctl.undo(); break
@@ -556,6 +852,12 @@ Variants {
                 case Qt.Key_F:
                     root.ctl.selectScreen(root.ctl.hoverScreen || win.screenName)
                     event.accepted = true
+                    return
+                case Qt.Key_O:
+                    if (root.ctl.ocrEnabled && win.hasSel && win.ownsSelection && win.frameReady) {
+                        win.toggleTextMarks()
+                        event.accepted = true
+                    }
                     return
                 case Qt.Key_Less:          // `,` too, so no Shift is needed on a US layout
                 case Qt.Key_Comma:

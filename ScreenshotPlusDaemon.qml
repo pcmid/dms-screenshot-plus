@@ -7,6 +7,7 @@ import qs.Modules.Plugins
 import "lib/Tools.js" as Tools
 import "lib/Config.js" as Config
 import "lib/Hit.js" as Hit
+import "lib/Ocr.js" as Ocr
 
 // State shared by every screen during a capture: the selection, the strokes
 // and their history, the tool and style, the frozen frames. CaptureOverlay
@@ -39,6 +40,8 @@ PluginComponent {
     readonly property string saveDirectory: String(Config.read(pluginData, "saveDirectory") || "")
     readonly property string fileNamePattern: String(Config.read(pluginData, "fileNamePattern") || "").trim()
     readonly property bool notify: Config.read(pluginData, "notify") !== false
+    readonly property string oarPath: String(Config.read(pluginData, "oarPath") || "").trim()
+    readonly property string oarArgs: String(Config.read(pluginData, "oarArgs") || "")
 
     // ── Screens and frozen frames ────────────────────────────────────────────
 
@@ -112,6 +115,28 @@ PluginComponent {
     property var pins: []              // [{ id, screen, x, y, w, h, src }]
     property var _pinFiles: ({})       // id -> PNG path
     property int _nextPinId: 1
+
+    // ── Text recognition ─────────────────────────────────────────────────────
+    // A double-click on text inside the selection runs oar (oar-ocr, see
+    // lib/Ocr.js) on the selection and turns on text mode: presses on
+    // recognized text then select it, as in a text box, and copying copies
+    // the text. The lines belong to the selection they were recognized in
+    // and are dropped when it changes.
+
+    readonly property bool ocrEnabled: oarPath !== ""
+    property string ocrState: "idle"   // idle | running | ready | failed
+    property var ocrLines: []          // Ocr.layout() lines, global logical
+    property var _ocrRegion: null      // { x, y, w, h }: the selection recognized or being recognized
+    property int _ocrToken: 0          // bumped to drop the recognition under way
+    property var _ocrProc: null
+    signal ocrFinished(string error)   // "" on success, else a message for the user
+
+    property bool textMode: false
+    property bool textMarked: false    // text mode from the OCR button: the recognized lines are outlined
+    property var textAnchor: null      // { line, pos }, see lib/Ocr.js
+    property var textFocus: null
+    readonly property bool hasSelectedText: textMode && textAnchor !== null && textFocus !== null
+                                            && Ocr.comparePos(textAnchor, textFocus) !== 0
 
     // ── Session ──────────────────────────────────────────────────────────────
 
@@ -189,6 +214,7 @@ PluginComponent {
         root.future = []
         root.nextStrokeId = 1
         root.selectedId = -1
+        root._resetOcr()
     }
 
     function _endSession() {
@@ -214,6 +240,9 @@ PluginComponent {
         root.selH = Math.round(y + h) - y0
         root.hasSelection = root.selW >= 1 && root.selH >= 1
         root.regionIndex = -1
+        const r = root._ocrRegion
+        if (r !== null && (r.x !== root.selX || r.y !== root.selY || r.w !== root.selW || r.h !== root.selH))
+            root._resetOcr()
     }
 
     // `F`: the whole screen.
@@ -272,6 +301,7 @@ PluginComponent {
     function setTool(tool) {
         if (tool !== "" && root.enabledTools.indexOf(tool) === -1)
             return
+        root.exitTextMode()
         root.activeTool = root.activeTool === tool ? "" : tool
     }
 
@@ -332,6 +362,122 @@ PluginComponent {
         root.strokes = root.future[0]
         root.future = root.future.slice(1)
         root.select(root.selectedId)
+    }
+
+    // ── Text recognition and selection ───────────────────────────────────────
+
+    // True when ocrLines, possibly none, are the text of the current selection.
+    function ocrCurrent() {
+        const r = root._ocrRegion
+        return root.ocrState === "ready" && r !== null
+               && r.x === root.selX && r.y === root.selY && r.w === root.selW && r.h === root.selH
+    }
+
+    // Called by the overlay that owns the selection before it grabs it. The
+    // token goes to recognize() or failOcr() once the grab has returned.
+    function beginOcr() {
+        root._resetOcr()
+        root._ocrRegion = { "x": root.selX, "y": root.selY, "w": root.selW, "h": root.selH }
+        root.ocrState = "running"
+        return root._ocrToken
+    }
+
+    // `path` is the selection as the overlay wrote it, `map` where it lies,
+    // see Ocr.layout(). The file is removed once oar is done with it.
+    function recognize(token, path, map) {
+        if (token !== root._ocrToken) {
+            Quickshell.execDetached(["rm", "-f", "--", path])
+            return
+        }
+        const proc = ocrRunner.createObject(root, {
+            "oar": Ocr.oarCommand(root.oarPath, root.oarArgs, Quickshell.env("HOME")),
+            "picture": path
+        })
+        root._ocrProc = proc
+        proc.recognized.connect((error, lines) => {
+            proc.destroy()
+            Quickshell.execDetached(["rm", "-f", "--", path])
+            if (token !== root._ocrToken)
+                return
+            root._ocrProc = null
+            if (error !== "") {
+                root.failOcr(token, error)
+                return
+            }
+            root.ocrLines = Ocr.layout(lines, map, ch => ocrMetrics.advanceWidth(ch))
+            root.ocrState = "ready"
+            root.ocrFinished("")
+        })
+        proc.running = true
+    }
+
+    // Esc while recognizing: stop, keep the selection.
+    function cancelOcr() {
+        root._resetOcr()
+    }
+
+    function failOcr(token, error) {
+        if (token !== root._ocrToken)
+            return
+        root.ocrState = "failed"
+        root._ocrRegion = null             // the next double-click tries again
+        root.ocrFinished(error)
+    }
+
+    function _resetOcr() {
+        root._ocrToken++
+        if (root._ocrProc) {
+            root._ocrProc.running = false  // what it still reports is dropped by the token
+            root._ocrProc = null
+        }
+        root.ocrState = "idle"
+        root.ocrLines = []
+        root._ocrRegion = null
+        root.exitTextMode()
+    }
+
+    function setTextSelection(anchor, focus) {
+        root.textAnchor = anchor
+        root.textFocus = focus
+        root.textMode = true
+    }
+
+    // Text mode with nothing selected yet and every recognized line outlined.
+    function markText() {
+        root.textAnchor = null
+        root.textFocus = null
+        root.textMode = true
+        root.textMarked = true
+    }
+
+    function exitTextMode() {
+        root.textMode = false
+        root.textMarked = false
+        root.textAnchor = null
+        root.textFocus = null
+    }
+
+    function selectAllText() {
+        const lines = root.ocrLines
+        if (lines.length > 0)
+            root.setTextSelection({ "line": 0, "pos": 0 },
+                                  { "line": lines.length - 1, "pos": lines[lines.length - 1].chars.length })
+    }
+
+    // Copies the selected text; the overlay stays. Returns the number of
+    // characters copied, line breaks not counted.
+    function copySelectedText() {
+        if (!root.hasSelectedText)
+            return 0
+        const text = Ocr.textBetween(root.ocrLines, root.textAnchor, root.textFocus)
+        const count = (text.replace(/\n/g, "").match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\s\S]/g) || []).length
+        if (count === 0)
+            return 0
+        DMSService.sendRequest("clipboard.copy", { "text": text }, resp => {
+            if (resp && resp.error)
+                console.warn("screenshotPlus: clipboard:", resp.error)
+        })
+        return count
     }
 
     // ── Frozen frames (cli backend) ──────────────────────────────────────────
@@ -495,6 +641,18 @@ PluginComponent {
         delegate: PinnedImage {
             ctl: root
         }
+    }
+
+    // Character widths to spread the carets of a recognized line over its box.
+    FontMetrics {
+        id: ocrMetrics
+        font.family: Theme.fontFamily
+        font.pixelSize: 64
+    }
+
+    Component {
+        id: ocrRunner
+        OcrRunner {}
     }
 
     Component.onCompleted: {

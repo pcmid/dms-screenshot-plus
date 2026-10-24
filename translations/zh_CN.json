@@ -124,5 +124,74 @@
   },
   "F  whole screen": {
     "F  whole screen": "F 整个屏幕"
+  },
+  "Text recognition": {
+    "Text recognition": "文字识别"
+  },
+  "Test": {
+    "Test": "测试"
+  },
+  "Running…": {
+    "Running…": "运行中…"
+  },
+  "Failed: %1": {
+    "Failed: %1": "失败：%1"
+  },
+  "Recognizing text…": {
+    "Recognizing text…": "正在识别文字…"
+  },
+  "No text recognized": {
+    "No text recognized": "未识别到文字"
+  },
+  "No text here": {
+    "No text here": "这里没有识别到文字"
+  },
+  "Copied %1 characters": {
+    "Copied %1 characters": "已复制 %1 个字"
+  },
+  "No text selected": {
+    "No text selected": "没有选中文字"
+  },
+  "Text recognition failed: %1": {
+    "Text recognition failed: %1": "文字识别失败：%1"
+  },
+  "could not write %1": {
+    "could not write %1": "无法写入 %1"
+  },
+  "could not grab the selection": {
+    "could not grab the selection": "无法截取选区"
+  },
+  "timed out": {
+    "timed out": "超时"
+  },
+  "exit code %1": {
+    "exit code %1": "退出码 %1"
+  },
+  "Copy text (Ctrl+C)": {
+    "Copy text (Ctrl+C)": "复制文字 (Ctrl+C)"
+  },
+  "oar path": {
+    "oar path": "oar 路径"
+  },
+  "Text inside the selection is recognized by oar-ocr; install it with cargo install oar-ocr-cli. Double-click text to select it. Leave empty to turn text recognition off.": {
+    "Text inside the selection is recognized by oar-ocr; install it with cargo install oar-ocr-cli. Double-click text to select it. Leave empty to turn text recognition off.": "选区里的文字由 oar-ocr 识别，用 cargo install oar-ocr-cli 安装。双击文字即可选中。留空则关闭文字识别。"
+  },
+  "oar arguments": {
+    "oar arguments": "oar 参数"
+  },
+  "Added after oar ocr. --size small is more accurate on some text and reads Japanese, but takes about twice as long.": {
+    "Added after oar ocr. --size small is more accurate on some text and reads Japanese, but takes about twice as long.": "加在 oar ocr 之后。--size small 对部分文字更准，也能识别日文，但耗时约为两倍。"
+  },
+  "Enter the path of oar first": {
+    "Enter the path of oar first": "请先填写 oar 路径"
+  },
+  "could not read oar's output": {
+    "could not read oar's output": "无法解析 oar 的输出"
+  },
+  "Succeeded": {
+    "Succeeded": "成功"
+  },
+  "Recognize text (O)": {
+    "Recognize text (O)": "识别文字 (O)"
   }
 }
