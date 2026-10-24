@@ -144,6 +144,21 @@ Item {
                 }
             }
 
+            // Outlines the text oar finds in the selection, ready to be
+            // selected and copied. Only there with oar set up.
+            BarButton {
+                readonly property bool active: ctl && ctl.textMarked
+                visible: ctl && ctl.ocrEnabled
+                iconName: "document_scanner"
+                tooltipText: I18n.trFor("screenshotPlus", "Recognize text (O)")
+                backgroundColor: active ? Theme.withAlpha(Theme.primary, 0.25) : "transparent"
+                iconColor: active ? Theme.primary : Theme.surfaceText
+                onClicked: {
+                    toolbar.closePanel()
+                    overlay.toggleTextMarks()
+                }
+            }
+
             Divider {}
 
             BarButton {
@@ -190,11 +205,13 @@ Item {
                 tooltipText: I18n.trFor("screenshotPlus", "Save to file (Ctrl+S)")
                 onClicked: ctl.finish("save")
             }
+            // In text mode it copies the selected text, as Ctrl+C does.
             BarButton {
                 iconName: "content_copy"
                 iconColor: Theme.success
-                tooltipText: I18n.trFor("screenshotPlus", "Copy to clipboard (Enter / Space)")
-                onClicked: ctl.finish("copy")
+                tooltipText: ctl && ctl.textMode ? I18n.trFor("screenshotPlus", "Copy text (Ctrl+C)")
+                                                 : I18n.trFor("screenshotPlus", "Copy to clipboard (Enter / Space)")
+                onClicked: ctl.textMode ? overlay.copyText() : ctl.finish("copy")
             }
             BarButton {
                 iconName: "close"

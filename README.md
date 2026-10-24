@@ -9,6 +9,7 @@ Drag out a selection, and the toolbar appears next to it. Draw on the picture ri
 - Eight preset colors plus a custom color picker; four sizes, remembered per tool
 - Copy to the clipboard, save to a file, or both, with a notification that opens the file or its folder
 - Pin the capture to the screen: it stays above your windows, can be moved and scaled, and is part of the next capture
+- Select and copy text in the picture: double-click it as in a text box; [oar-ocr](https://github.com/greatv/oar-ocr) recognizes it
 - The overlay is up about 80 ms after the shortcut
 - Exports at the screen's native resolution on HiDPI displays; mosaics are computed on source pixels
 
@@ -91,6 +92,35 @@ A pinned capture stays on screen above your windows, exactly where the selection
 
 Pins last until they are closed or the shell is reloaded. Each pin is a transparent window the size of its screen that only takes input on the picture, so close the ones you are done with.
 
+### Text recognition
+
+With [oar](#setting-up-oar) set up, double-click text inside the selection to select it, as in a text box, or press the OCR button to outline all the text oar finds in it. Either recognizes the selection the first time, which takes a moment.
+
+| Action | Effect |
+|---|---|
+| `O` / OCR button | Outline the recognized text; again to stop |
+| Double click | Select a word; in Chinese and Japanese, which have no spaces between words, the characters up to the next punctuation |
+| Triple click | Select the line |
+| Drag over text | Select text, across lines |
+| `Shift` + click | Extend the selection |
+| `Ctrl+A` | Select all recognized text |
+| `Ctrl+C` / `Enter` / copy button | Copy the selected text; the overlay stays open |
+| `Esc` / right click | Leave text selection; while recognizing, stop |
+
+Text selection lasts until you leave it with `Esc`, a right click, the OCR button or a drawing tool, so a stray click loses nothing: a press elsewhere in the selection puts the caret at the nearest text, a press outside it does nothing, and the selection cannot be moved or resized meanwhile. Changing the selection, with `F` or `<` / `>`, drops what was recognized.
+
+#### Setting up oar
+
+Text is recognized by [oar-ocr](https://github.com/greatv/oar-ocr), which runs PaddleOCR's PP-OCRv6 models on the CPU. It reads Chinese, English and 46 other languages in Latin script with no setup, usually in well under a second. Install it:
+
+```bash
+cargo install oar-ocr-cli
+```
+
+Then enter its path, normally `~/.cargo/bin/oar`, under Text recognition in the settings: the shell's `PATH` usually lacks `~/.cargo/bin`. The Test button runs it on a sample picture. The first run downloads the models into `~/.oar`, 6 MB for the default `--size tiny`. With `--size small` as arguments, oar is more accurate on some text and reads Japanese as well, and takes about twice as long.
+
+Screenshot+ runs `oar ocr <arguments> --format json` on the selection without annotations, at the screen's native resolution.
+
 ### Settings
 
 DMS Settings, Plugins, Screenshot+:
@@ -99,12 +129,13 @@ DMS Settings, Plugins, Screenshot+:
 - **Default style**: color and size at the start of each capture.
 - **Output**: what `Enter` does: copy to clipboard, save to file, pin to screen; save directory (empty for the Screenshots folder in your Pictures directory), file name as a `date` format without the extension (empty for `screenshot-%Y%m%d-%H%M%S`), notification.
 - **Backend**: `cli` or `screencopy`, see [Backends](#backends).
+- **Text recognition**: the path of oar, empty to turn text selection off, its arguments, and a button to test it; see [Setting up oar](#setting-up-oar).
 
 ## Backends
 
 Both backends freeze the screen under the overlay, so the dimmer and the annotations are drawn over a still image while the desktop keeps running underneath.
 
-**cli** (default) runs `dms screenshot output` for every screen before the overlay is mapped, writes the frames as PNG files to `/tmp` and loads them into an `Image`. The overlay appears immediately and fully transparent, the dimmer is drawn as soon as the grab has returned, and the decoded frame replaces the live desktop a moment later. The switch is invisible because both show the same picture. This backend works with any Quickshell.
+**cli** (default) runs `dms screenshot output` for every screen before the overlay is mapped, writes the frames as PNG files to `$XDG_RUNTIME_DIR/screenshot-plus` and loads them into an `Image`. The overlay appears immediately and fully transparent, the dimmer is drawn as soon as the grab has returned, and the decoded frame replaces the live desktop a moment later. The switch is invisible because both show the same picture. This backend works with any Quickshell.
 
 **screencopy** captures the frame in-process through Quickshell's `ScreencopyView`, which speaks the wlr-screencopy protocol directly to the compositor. Nothing is encoded, written or decoded, so the frame is on screen about three times sooner. Current stock Quickshell (0.3.1 and master alike) crashes the whole shell when the overlay closes: its screencopy backend binds a second `wl_output` with Qt's own listener, QtWayland mistakes that object for a screen and dereferences it after it has been freed. The analysis and a fix are in [quickshell#1094](https://github.com/quickshell-mirror/quickshell/issues/1094); the fix is not merged yet. Choose this backend only with a Quickshell that includes it.
 
@@ -142,6 +173,7 @@ Component errors and `console.warn` output appear in `journalctl --user -u dms`.
 | `ScreenshotPlusDaemon.qml` | Session state, frozen frames, export handling, IPC |
 | `CaptureOverlay.qml` | One layer-shell window per screen: selection, pointer and keyboard handling, export |
 | `PinnedImage.qml` | One window per pinned capture: moving, scaling, copy / save / close |
+| `OcrRunner.qml` | One run of oar: output, errors, timeout |
 | `AnnotationLayer.qml` | The exported subtree (frame, mosaics, strokes) plus the selection outline and text editor |
 | `Toolbar.qml` | Toolbar and color / size panel |
 | `ScreenshotPlusSettings.qml` | Settings page |
@@ -149,4 +181,5 @@ Component errors and `console.warn` output appear in `journalctl --user -u dms`.
 | `lib/Renderer.js`, `lib/Hit.js` | Drawing and hit-testing of strokes |
 | `lib/Config.js` | Setting defaults |
 | `lib/finalize.sh` | Post-export: convert to PNG, save, notify |
+| `lib/Ocr.js` | oar's command line and output, and selecting recognized text |
 | `translations/<locale>.json` | UI strings; add a file to add a language |

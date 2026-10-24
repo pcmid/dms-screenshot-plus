@@ -1,8 +1,10 @@
 import QtQuick
+import Quickshell
 import qs.Common
 import qs.Widgets
 import qs.Modules.Plugins
 import "lib/Config.js" as Config
+import "lib/Ocr.js" as Ocr
 import "lib/Tools.js" as Tools
 
 // DMS Settings -> Plugins -> Screenshot+. Defaults come from lib/Config.js.
@@ -107,5 +109,76 @@ PluginSettings {
             { "label": "screencopy", "value": "screencopy" }
         ]
         defaultValue: Config.DEFAULTS.backend
+    }
+
+    SectionTitle { text: I18n.trFor("screenshotPlus", "Text recognition"); topPadding: Theme.spacingM }
+
+    StringSetting {
+        id: oarPathSetting
+        settingKey: "oarPath"
+        label: I18n.trFor("screenshotPlus", "oar path")
+        description: I18n.trFor("screenshotPlus", "Text inside the selection is recognized by oar-ocr; install it with cargo install oar-ocr-cli. Double-click text to select it. Leave empty to turn text recognition off.")
+        placeholder: "~/.cargo/bin/oar"
+        defaultValue: Config.DEFAULTS.oarPath
+    }
+
+    StringSetting {
+        id: oarArgsSetting
+        settingKey: "oarArgs"
+        label: I18n.trFor("screenshotPlus", "oar arguments")
+        description: I18n.trFor("screenshotPlus", "Added after oar ocr. --size small is more accurate on some text and reads Japanese, but takes about twice as long.")
+        placeholder: Config.DEFAULTS.oarArgs
+        defaultValue: Config.DEFAULTS.oarArgs
+    }
+
+    Row {
+        width: parent.width
+        spacing: Theme.spacingM
+
+        DankButton {
+            id: testButton
+            text: I18n.trFor("screenshotPlus", "Test")
+            iconName: "play_arrow"
+            onClicked: root.testOcr()
+        }
+
+        StyledText {
+            id: testResult
+            property bool failed: false
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width - testButton.width - parent.spacing
+            font.pixelSize: Theme.fontSizeSmall
+            color: failed ? Theme.error : Theme.surfaceVariantText
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    Component {
+        id: ocrRunner
+        OcrRunner {}
+    }
+
+    // Runs oar on the README's screenshot and says whether that worked.
+    function testOcr() {
+        oarPathSetting.commit()
+        oarArgsSetting.commit()
+        if (oarPathSetting.value.trim() === "") {
+            testResult.failed = true
+            testResult.text = I18n.trFor("screenshotPlus", "Enter the path of oar first")
+            return
+        }
+        testResult.failed = false
+        testResult.text = I18n.trFor("screenshotPlus", "Running…")
+        const proc = ocrRunner.createObject(root, {
+            "oar": Ocr.oarCommand(oarPathSetting.value, oarArgsSetting.value, Quickshell.env("HOME")),
+            "picture": Qt.resolvedUrl("screenshots/screenshot.png").toString().replace(/^file:\/\//, "")
+        })
+        proc.recognized.connect(error => {
+            proc.destroy()
+            testResult.failed = error !== ""
+            testResult.text = error === "" ? I18n.trFor("screenshotPlus", "Succeeded")
+                                           : I18n.trFor("screenshotPlus", "Failed: %1").arg(error)
+        })
+        proc.running = true
     }
 }

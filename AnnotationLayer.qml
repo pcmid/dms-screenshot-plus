@@ -22,6 +22,7 @@ Item {
     property var frameItem: null    // ScreencopyView or Image holding the frame
 
     readonly property alias exportItem: exportRoot
+    readonly property alias frameCopyItem: frameCopy   // the frame alone, which text recognition reads
     readonly property bool editingText: textSession !== null
     // Hidden from bakedCanvas while it is dragged or edited.
     readonly property int hiddenId: dragId >= 0 ? dragId : (textSession ? textSession.id : -1)
@@ -247,6 +248,7 @@ Item {
         // textureSize pins it to source pixels so the grab samples at full
         // resolution rather than at the on-screen size.
         ShaderEffectSource {
+            id: frameCopy
             anchors.fill: parent
             sourceItem: annot.frameItem
             sourceRect: Qt.rect(overlay.selLX, overlay.selLY, overlay.selLW, overlay.selLH)
