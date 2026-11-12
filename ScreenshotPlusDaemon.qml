@@ -637,8 +637,26 @@ PluginComponent {
         }
     }
 
-    CaptureOverlay {
-        ctl: root
+    // New windows for every capture. A window kept across captures stops
+    // receiving keys once a DMS search field (launcher, clipboard) has had
+    // the focus, until the shell restarts; the mouse keeps working.
+    // The windows hide with `active` and are destroyed a tick later, so
+    // nothing is destroyed from inside its own key handler or grab callback.
+    property bool _overlayLoaded: false
+
+    onActiveChanged: {
+        if (root.active)
+            root._overlayLoaded = true
+        else
+            Qt.callLater(() => { if (!root.active) root._overlayLoaded = false })
+    }
+
+    LazyLoader {
+        active: root._overlayLoaded
+
+        CaptureOverlay {
+            ctl: root
+        }
     }
 
     Variants {
