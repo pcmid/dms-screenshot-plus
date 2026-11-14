@@ -229,6 +229,7 @@ PanelWindow {
         iconSize: 20
         iconColor: Theme.surfaceText
         tooltipSide: "bottom"
+        focusPolicy: Qt.NoFocus   // DMS 2 buttons take the focus on click, and keys stop reaching `keys`
     }
 
     Rectangle {
