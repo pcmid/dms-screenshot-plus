@@ -546,7 +546,7 @@ PluginComponent {
     }
 
     // Runs finalize.sh on `path` and acts on the PNG it prints. The PNG is
-    // removed once the clipboard has read it, unless it belongs to pin `pinId`.
+    // removed once copied, unless it belongs to pin `pinId`.
     function _finalize(path, copy, save, pinId) {
         const body = !root.notify ? ""
                    : save ? (copy ? I18n.trFor("screenshotPlus", "Saved and copied to clipboard") : I18n.trFor("screenshotPlus", "Saved"))
@@ -560,16 +560,19 @@ PluginComponent {
                 console.warn("screenshotPlus: finalize failed:", code, String(stdout).trim().slice(0, 200))
                 return
             }
-            if (pinId && root.pins.some(p => p.id === pinId))
+            const pinned = pinId && root.pins.some(p => p.id === pinId)
+            if (pinned)
                 root._pinFiles = Object.assign({}, root._pinFiles, { [pinId]: png })
-            else   // the clipboard and the notification daemon read the file asynchronously
-                Quickshell.execDetached(["sh", "-c", 'sleep 10; rm -f -- "$1"', "sh", png])
-            if (copy) {
-                DMSService.sendRequest("clipboard.copyFile", { "filePath": png }, resp => {
-                    if (resp && resp.error)
-                        console.warn("screenshotPlus: clipboard:", resp.error)
-                })
-            }
+            // The clipboard gets the image bytes, served by a process of its
+            // own, so the file is not needed once they have been handed over.
+            const drop = () => { if (!pinned) Quickshell.execDetached(["rm", "-f", "--", png]) }
+            if (!copy)
+                return drop()
+            Proc.runCommand(job + ".clip", ["sh", "-c", 'exec dms clipboard copy -t image/png < "$1"', "sh", png], (out, code) => {
+                if (code !== 0)
+                    console.warn("screenshotPlus: clipboard:", code, String(out).trim().slice(0, 200))
+                drop()
+            }, 0, 10000)
         }, 0, 30000)
     }
 
