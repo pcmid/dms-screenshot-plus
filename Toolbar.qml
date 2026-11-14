@@ -48,6 +48,7 @@ Item {
         iconSize: 20
         iconColor: Theme.surfaceText
         tooltipSide: toolbar.tooltipSide
+        focusPolicy: Qt.NoFocus   // DMS 2 buttons take the focus on click, and keys stop reaching the overlay
     }
 
     component Divider: Item {
@@ -272,6 +273,7 @@ Item {
                     iconSize: 16
                     iconColor: Theme.surfaceText
                     tooltipText: I18n.trFor("screenshotPlus", "Custom color")
+                    focusPolicy: Qt.NoFocus
                     onClicked: toolbar.pickCustomColor()
                 }
             }
